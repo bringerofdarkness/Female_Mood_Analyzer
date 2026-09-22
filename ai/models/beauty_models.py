@@ -9,4 +9,4 @@ class BeautyResponse(BaseModel):
     today: dict
     history: list
     correlations: dict
-    ai_insights: str
+    ai_insights: dict
