@@ -109,7 +109,12 @@ def _fetch_latest_skin_scan(user_id: int) -> dict[str, Any]:
             if not row:
                 return {}
             
-            return _format_skin_scan_row(row)
+            # Convert datetime objects to ISO strings for JSON serialization
+            if row.get('created_at'):
+                row['created_at'] = row['created_at'].isoformat()
+            if row.get('updated_at'):
+                row['updated_at'] = row['updated_at'].isoformat()
+            return row
     
     except Exception as exc:
         print(f"Error fetching latest skin scan: {exc}")
@@ -138,7 +143,15 @@ def _fetch_skin_scan_history(user_id: int, days: int = 30) -> list[dict[str, Any
             """, (user_id, days, days))
             
             rows = cur.fetchall()
-            return [_format_skin_scan_row(row) for row in rows]
+            
+            # Convert datetime objects to ISO strings for JSON serialization
+            for row in rows:
+                if row.get('created_at'):
+                    row['created_at'] = row['created_at'].isoformat()
+                if row.get('updated_at'):
+                    row['updated_at'] = row['updated_at'].isoformat()
+            
+            return rows
     
     except Exception as exc:
         print(f"Error fetching skin scan history: {exc}")
@@ -353,26 +366,4 @@ def _calculate_correlations(
     }
 
 
-def _format_skin_scan_row(row: tuple) -> dict[str, Any]:
-    """Format a skin scan database row into a dictionary."""
-    return {
-        "id": row[0],
-        "user_id": row[1],
-        "image_path": row[2],
-        "overall_score": row[3],
-        "hydration_score": row[4],
-        "redness_score": row[5],
-        "texture_score": row[6],
-        "glow_index": row[7],
-        "pore_health_score": row[8],
-        "elasticity_score": row[9],
-        "hydration_status": row[10],
-        "redness_status": row[11],
-        "texture_status": row[12],
-        "glow_status": row[13],
-        "pore_health_status": row[14],
-        "elasticity_status": row[15],
-        "neumera_insight": row[16],
-        "created_at": str(row[17]) if row[17] else None,
-        "updated_at": str(row[18]) if row[18] else None
-    }
+
