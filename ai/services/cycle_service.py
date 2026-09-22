@@ -147,7 +147,7 @@ def _fetch_current_cycle(user_id: int) -> Optional[Dict[str, Any]]:
             """, (user_id,))
             
             row = cur.fetchone()
-            return _format_cycle_row(row) if row else None
+            return row if row else None
     
     except Exception as exc:
         logger.error(f"Database error fetching current cycle: {exc}")
@@ -227,9 +227,9 @@ def _fetch_cycle_history(user_id: int, months: int = 6) -> CycleHistory:
 def _build_cycle_metrics(cycle_data: Dict[str, Any]) -> CycleMetrics:
     """Build CycleMetrics from database row."""
     return CycleMetrics(
-        current_cycle_day=cycle_data.get("current_cycle_day", 0),
-        cycle_length=cycle_data.get("cycle_length", DEFAULT_CYCLE_LENGTH),
-        current_phase=cycle_data.get("current_phase", "unknown"),
+        current_cycle_day=cycle_data.get("current_cycle_day") or 0,
+        cycle_length=cycle_data.get("cycle_length") or DEFAULT_CYCLE_LENGTH,
+        current_phase=cycle_data.get("current_phase") or "unknown",
         period_start_date=str(cycle_data.get("period_start_date")) if cycle_data.get("period_start_date") else None,
         period_end_date=str(cycle_data.get("period_end_date")) if cycle_data.get("period_end_date") else None,
         predicted_ovulation_day=cycle_data.get("predicted_ovulation_day"),
@@ -416,29 +416,6 @@ def _generate_cycle_insights(context: str, mode: str) -> dict:
             "confidence_score": 0
         }
 
-
-def _format_cycle_row(row: Tuple) -> Dict[str, Any]:
-    """Format database row into dictionary."""
-    return {
-        "id": row[0],
-        "user_id": row[1],
-        "period_start_date": row[2],
-        "period_end_date": row[3],
-        "current_cycle_day": row[4],
-        "cycle_length": row[5],
-        "period_length": row[6],
-        "predicted_ovulation_day": row[7],
-        "confirmed_ovulation_day": row[8],
-        "predicted_peak_day": row[9],
-        "fertile_start_day": row[10],
-        "fertile_end_day": row[11],
-        "current_phase": row[12],
-        "prediction_source": row[13],
-        "is_confirmed": row[14],
-        "is_completed": row[15],
-        "created_at": row[16],
-        "updated_at": row[17]
-    }
 
 # Legacy functions required by chat_service.py for backward compatibility
 def fetch_backend_data(user_id: str) -> dict[str, Any]:
