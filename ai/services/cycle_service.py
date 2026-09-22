@@ -380,6 +380,8 @@ def _generate_cycle_insights(context: str, mode: str) -> dict:
     """Generate AI insights using Claude."""
     
     try:
+        import json
+        
         llm = ClaudeLLM()
         
         system_msg = CYCLE_SYSTEM_PROMPT
@@ -387,16 +389,17 @@ def _generate_cycle_insights(context: str, mode: str) -> dict:
             system_msg += "\n\nPREMIUM MODE: Provide detailed medical-grade analysis with all possible insights."
         
         response = llm.chat(
-            system_prompt=system_msg,
+            system=system_msg,
             messages=[{
                 "role": "user",
                 "content": f"Analyze this user's cycle and provide personalized insights:\n\n{context}"
             }]
         )
         
-        # Parse JSON response
-        import json
-        response_text = response.strip()
+        # Extract text from response object
+        response_text = response.content[0].text.strip()
+        
+        # Remove markdown code blocks if present
         if response_text.startswith("```"):
             response_text = response_text.split("```")[1]
             if response_text.startswith("json"):

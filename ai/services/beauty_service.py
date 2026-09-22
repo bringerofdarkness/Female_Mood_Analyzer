@@ -293,7 +293,7 @@ def _generate_beauty_insights(context: str) -> str:
         llm = ClaudeLLM()
         
         response = llm.chat(
-            system_prompt=BEAUTY_SYSTEM_PROMPT,
+            system=BEAUTY_SYSTEM_PROMPT,
             messages=[
                 {
                     "role": "user",
@@ -302,10 +302,11 @@ def _generate_beauty_insights(context: str) -> str:
             ]
         )
         
-        # Parse JSON response
-        response_text = response.strip()
+        # Extract text from response object
+        response_text = response.content[0].text.strip()
+        
+        # Remove markdown code blocks if present
         if response_text.startswith("```"):
-            # Remove markdown code blocks if present
             response_text = response_text.split("```")[1]
             if response_text.startswith("json"):
                 response_text = response_text[4:]
