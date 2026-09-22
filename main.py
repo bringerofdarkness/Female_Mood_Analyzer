@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from ai.config import settings
+from ai.routes import beauty_routes
 from ai.routes import chat_routes
 from ai.routes import cycle_awareness_routes
 from ai.routes import daily_scripture_routes
@@ -22,6 +23,7 @@ app.include_router(
     prefix="/api/v1/cycle-engine",
     tags=["Cycle_engine_v1"],
 )
+app.include_router(beauty_routes.router, prefix="/api", tags=["Beauty_radiance_api"])
 app.include_router(cycle_awareness_routes.router, prefix="/api", tags=["Cycle_awareness_api's"])
 app.include_router(health_trends_routes.router, prefix="/api", tags=["Health_trends_api's"])
 app.include_router(daily_scripture_routes.router, prefix="/api", tags=["Daily_scripture_api's"])
