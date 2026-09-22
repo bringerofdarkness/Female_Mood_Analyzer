@@ -189,14 +189,19 @@ def _fetch_terra_activity_data(user_id: int, days: int = 30) -> dict[str, Any]:
             met_values = []
             
             for row in rows:
-                if row[1]:  # sleep_score
-                    sleep_values.append(float(row[1]))
-                if row[2]:  # activity_score
-                    activity_values.append(float(row[2]))
-                if row[3]:  # recovery_score
-                    recovery_values.append(float(row[3]))
-                if row[4]:  # met_avg
-                    met_values.append(float(row[4]))
+                sleep_score = row.get('sleep_score')
+                activity_score = row.get('activity_score')
+                recovery_score = row.get('recovery_score')
+                met_avg = row.get('met_avg')
+                
+                if sleep_score:
+                    sleep_values.append(float(sleep_score))
+                if activity_score:
+                    activity_values.append(float(activity_score))
+                if recovery_score:
+                    recovery_values.append(float(recovery_score))
+                if met_avg:
+                    met_values.append(float(met_avg))
             
             return {
                 "avg_sleep": round(sum(sleep_values) / len(sleep_values), 2) if sleep_values else None,
@@ -236,12 +241,12 @@ def _fetch_menstrual_cycle_context(user_id: int) -> dict[str, Any]:
                 return {}
             
             return {
-                "current_phase": row[0],
-                "current_cycle_day": row[1],
-                "cycle_length": row[2],
-                "period_start_date": str(row[3]) if row[3] else None,
-                "predicted_ovulation_day": row[4],
-                "is_completed": row[5]
+                "current_phase": row.get('current_phase'),
+                "current_cycle_day": row.get('current_cycle_day'),
+                "cycle_length": row.get('cycle_length'),
+                "period_start_date": str(row.get('period_start_date')) if row.get('period_start_date') else None,
+                "predicted_ovulation_day": row.get('predicted_ovulation_day'),
+                "is_completed": row.get('is_completed')
             }
     
     except Exception as exc:

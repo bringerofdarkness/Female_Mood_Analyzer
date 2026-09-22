@@ -205,8 +205,8 @@ def _fetch_cycle_history(user_id: int, months: int = 6) -> CycleHistory:
                 logger.debug(f"No cycle history found for user {user_id}")
                 return CycleHistory()
             
-            cycle_lengths = [row[0] for row in rows if row[0]]
-            period_lengths = [row[1] for row in rows if row[1]]
+            cycle_lengths = [row.get('cycle_length') for row in rows if row.get('cycle_length')]
+            period_lengths = [row.get('period_length') for row in rows if row.get('period_length')]
             
             # Calculate regularity (std deviation of cycle lengths)
             avg_length = sum(cycle_lengths) / len(cycle_lengths) if cycle_lengths else DEFAULT_CYCLE_LENGTH
@@ -269,19 +269,19 @@ def _calculate_fertile_window(metrics: CycleMetrics) -> FertileWindow:
     )
 
 
-def _analyze_bbt_data(rows: List[Tuple]) -> Optional[BBTAnalysis]:
+def _analyze_bbt_data(rows: List[Dict[str, Any]]) -> Optional[BBTAnalysis]:
     """Analyze BBT temperature data for patterns."""
     
     if not rows:
         return None
     
     try:
-        temperatures = [row[1] for row in rows if row[1]]
-        phases = [row[3] for row in rows if row[3]]
+        temperatures = [row['temperature'] for row in rows if row.get('temperature')]
+        phases = [row['phase'] for row in rows if row.get('phase')]
         
         # Split by phase
-        follicular_temps = [row[1] for row in rows if row[1] and row[3] == "follicular"]
-        luteal_temps = [row[1] for row in rows if row[1] and row[3] == "luteal"]
+        follicular_temps = [row['temperature'] for row in rows if row.get('temperature') and row.get('phase') == "follicular"]
+        luteal_temps = [row['temperature'] for row in rows if row.get('temperature') and row.get('phase') == "luteal"]
         
         # Calculate averages
         avg_follicular = sum(follicular_temps) / len(follicular_temps) if follicular_temps else None
@@ -295,7 +295,7 @@ def _analyze_bbt_data(rows: List[Tuple]) -> Optional[BBTAnalysis]:
             last_avg = sum(temperatures[-3:]) / 3
             temp_shift = last_avg > first_avg + 0.3  # 0.3°C shift
             if temp_shift:
-                shift_date = str(rows[-3][0])  # Approximate shift date
+                shift_date = str(rows[-3]['log_date']) if rows[-3].get('log_date') else None
         
         return BBTAnalysis(
             temperature_entries=len(temperatures),
@@ -303,7 +303,7 @@ def _analyze_bbt_data(rows: List[Tuple]) -> Optional[BBTAnalysis]:
             avg_luteal_temp=round(avg_luteal, 2) if avg_luteal else None,
             temp_rise_detected=temp_shift,
             temp_rise_date=shift_date,
-            coverline_value=rows[-1][4] if rows[-1][4] else None,  # Last coverline
+            coverline_value=rows[-1].get('coverline_value') if rows else None,
             prediction_confidence=90.0 if temp_shift else 60.0
         )
     
