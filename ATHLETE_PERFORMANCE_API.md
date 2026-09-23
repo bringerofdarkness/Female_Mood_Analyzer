@@ -1,11 +1,141 @@
 # Athlete Performance & Readiness API
 
-## Overview
-Production-grade API for calculating athlete readiness scores based on HRV, sleep, recovery, training load, and menstrual cycle phase.
+**Last Updated:** 2026-09-23  
+**Status:** ✅ **WORKING & READY FOR DEPLOYMENT**  
+**Implemented By:** AI Assistant  
 
-**Endpoint:** `GET /api/v1/athlete/readiness?user_id={user_id}`
+---
 
-**Status:** ✅ **WORKING & READY FOR DEPLOYMENT**
+## 1. API Specification
+
+### Endpoint Details
+- **Route:** `GET /api/v1/athlete/readiness`
+- **Base URL:** `http://localhost:8002` *(Local / Docker)* | `https://api.yourdomain.com` *(Production)*
+- **Full URL Example:** `http://localhost:8002/api/v1/athlete/readiness?user_id=2`
+- **Request Model:** `AthleteReadinessRequest`
+- **Response Model:** `AthleteReadinessResponse`
+
+### Overview & Purpose
+Production-grade API for calculating comprehensive athlete readiness scores (0-100) combining biometric vitals (HRV, sleep score, recovery score, training load) from wearable activity data with menstrual cycle phase tracking to deliver personalized training intensity recommendations and fatigue alerts.
+
+---
+
+## 2. Request & Response Models
+
+### 📥 Request Model: `AthleteReadinessRequest`
+
+The endpoint accepts HTTP GET query parameters matching the `AthleteReadinessRequest` Pydantic model:
+
+| Parameter | Type | In | Required | Validation | Description |
+|-----------|------|----|----------|------------|-------------|
+| `user_id` | `integer` | query | **Yes** | `ge=1` | Unique ID of the target user |
+
+#### Pydantic Schema (`ai/models/athlete_models.py`):
+```python
+class AthleteReadinessRequest(BaseModel):
+    """Request for athlete readiness."""
+    user_id: int = Field(..., ge=1, description="User ID")
+```
+
+#### Example HTTP Request:
+```http
+GET /api/v1/athlete/readiness?user_id=2 HTTP/1.1
+Host: localhost:8002
+Accept: application/json
+```
+
+#### cURL Example:
+```bash
+curl -X GET "http://localhost:8002/api/v1/athlete/readiness?user_id=2" \
+     -H "Accept: application/json"
+```
+
+#### PowerShell Example:
+```powershell
+Invoke-RestMethod -Uri "http://localhost:8002/api/v1/athlete/readiness?user_id=2" | ConvertTo-Json -Depth 10
+```
+
+---
+
+### 📤 Response Model: `AthleteReadinessResponse`
+
+The endpoint returns HTTP 200 with JSON matching the `AthleteReadinessResponse` Pydantic model:
+
+#### Root Schema (`AthleteReadinessResponse`):
+| Field | Type | Description | Values / Range |
+|-------|------|-------------|----------------|
+| `date` | `string` (ISO date) | Date of readiness assessment | e.g. `"2026-09-23"` |
+| `readiness_score` | `integer` | Overall composite readiness score | `0 - 100` |
+| `readiness_level` | `string` | Qualitative readiness category | `"Peak Ready"`, `"Ready"`, `"Adequate"`, `"Fatigued"`, `"Depleted"` |
+| `readiness_message` | `string` | Dynamic user-facing actionable guidance | e.g. `"You're showing signs of fatigue..."` |
+| `metrics` | `Metrics` (object) | Biometric component breakdown | See `Metrics` model below |
+| `fatigue_alerts` | `list[FatigueAlert]` | Active fatigue and overtraining warnings | List of alert objects |
+| `cycle_info` | `CycleInfo` (object) | Menstrual cycle phase & day tracking | See `CycleInfo` model below |
+| `recommendations` | `PhaseRecommendation` (object) | Phase-based workout suggestions & restrictions | See `PhaseRecommendation` model below |
+| `next_update` | `string` (ISO 8601) | Timestamp when next metric recalculation occurs | e.g. `"2026-09-24T10:50:57.020242+00:00"` |
+
+#### Nested Sub-Models:
+
+##### 1. `Metrics` (`ai/models/athlete_models.py`)
+| Field | Type | Description |
+|-------|------|-------------|
+| `hrv` | `HRVMetric` | Heart rate variability readings |
+| `sleep` | `SleepMetric` | Sleep duration, score, and qualitative status |
+| `recovery` | `RecoveryMetric` | Recovery score and physical restoration status |
+| `training_load` | `TrainingLoadMetric` | Daily exertion load (AU) calculated from MET and activity duration |
+
+##### 2. `HRVMetric`
+| Field | Type | Description | Range / Options |
+|-------|------|-------------|-----------------|
+| `value` | `integer` | Raw HRV value in milliseconds | `ge=0` (e.g. `0` if no sensor, `65` ms) |
+| `unit` | `string` | Metric unit | Always `"ms"` |
+| `score` | `integer` | Normalized score | `0 - 100` |
+| `trend` | `integer` | Day-over-day delta | Positive = improving, Negative = declining |
+| `status` | `string` | Biometric status | `"good"`, `"warning"`, `"poor"` |
+
+##### 3. `SleepMetric`
+| Field | Type | Description | Range / Options |
+|-------|------|-------------|-----------------|
+| `hours` | `float` | Sleep duration in hours | `0.0 - 24.0` |
+| `score` | `integer` | Sleep quality score | `0 - 100` (safe baseline `60` when untracked) |
+| `status` | `string` | Qualitative rating | `"good"`, `"fair"`, `"poor"` |
+
+##### 4. `RecoveryMetric`
+| Field | Type | Description | Range / Options |
+|-------|------|-------------|-----------------|
+| `score` | `integer` | Physical recovery score | `0 - 100` (derived from MET/daily data) |
+| `status` | `string` | Recovery rating | `"recovered"`, `"partial"`, `"depleted"` |
+
+##### 5. `TrainingLoadMetric`
+| Field | Type | Description | Range / Options |
+|-------|------|-------------|-----------------|
+| `value` | `float` | Daily exertion load in Arbitrary Units | Calculated from `(MET × 10) + (active_minutes × 0.5)` |
+| `unit` | `string` | Load unit | Always `"AU"` |
+| `status` | `string` | Exertion classification | `"low"`, `"moderate"`, `"high"` |
+
+##### 6. `FatigueAlert`
+| Field | Type | Description | Options |
+|-------|------|-------------|---------|
+| `type` | `string` | Alert classification | `"overtraining_risk"`, `"recovery_deficit"`, `"cumulative_fatigue"`, `"sleep_debt"` |
+| `level` | `string` | Severity level | `"low"`, `"moderate"`, `"high"` |
+| `message` | `string` | Actionable alert advice | Human-readable alert explanation |
+
+##### 7. `CycleInfo`
+| Field | Type | Description | Range / Options |
+|-------|------|-------------|-----------------|
+| `phase` | `string` | Menstrual cycle phase | `"menstrual"`, `"follicular"`, `"ovulatory"`, `"luteal"`, `"unknown"` |
+| `cycle_day` | `integer` | Current day in cycle | `0 - 100` (`0` if no cycle logged) |
+| `days_to_next_phase` | `integer` | Estimated days to upcoming phase | `0 - 100` |
+| `phase_boost` | `integer` | Phase-adjusted score bonus/penalty | `-15` to `+15` (e.g. `+2` for follicular, `-7` for menstrual) |
+| `phase_description` | `string` | Summary of phase physiological effect | Human-readable explanation |
+
+##### 8. `PhaseRecommendation`
+| Field | Type | Description | Range / Options |
+|-------|------|-------------|-----------------|
+| `workout_type` | `string` | Prescribed workout focus | `"high_intensity"`, `"strength"`, `"endurance"`, `"recovery"` |
+| `intensity_level` | `string` | Prescribed intensity | `"maximum"`, `"high"`, `"moderate"`, `"low"` |
+| `suggested_workouts`| `list[string]` | List of recommended exercises | e.g. `["Heavy strength training (3-6 rep range)", ...]` |
+| `avoid` | `list[string]` | Workouts to avoid today | e.g. `["Excessive steady-state cardio", ...]` |
 
 ---
 
