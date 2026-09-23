@@ -156,23 +156,7 @@ def _extract_scan_findings(scan_data: dict[str, Any]) -> list[FindingItem]:
             score=texture
         ))
     
-    # Elasticity finding
-    if elasticity is not None:
-        if elasticity >= 75:
-            status = "Strong elasticity with excellent bounce-back"
-        elif elasticity >= 50:
-            status = "Fair elasticity with minor sagging around contours"
-        else:
-            status = "Loss of firmness, visible sagging detected"
-        
-        findings.append(FindingItem(
-            finding="Skin firmness",
-            status=status,
-            badge=score_to_badge(elasticity),
-            score=elasticity
-        ))
-    
-    return findings  # Returns List[FindingItem]
+    return findings  # Returns List[FindingItem] - 4 findings (hydration, pore, inflammation, melanin)
 
 
 def _calculate_sleep_skin_correlation(
