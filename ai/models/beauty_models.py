@@ -77,4 +77,4 @@ class BeautyResponse(BaseModel):
     today: TodayScan
     history: List[HistoryItem]
     correlations: Correlations
-    ai_insights: AIInsights
+    ai_insights: Optional[AIInsights] = Field(None, description="Null if no skin scan data available")

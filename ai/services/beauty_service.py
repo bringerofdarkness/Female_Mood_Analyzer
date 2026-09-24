@@ -393,16 +393,23 @@ def get_beauty_overview(request: BeautyRequest) -> BeautyResponse:
         # Fetch menstrual cycle data for context
         cycle_data = _fetch_menstrual_cycle_context(user_id)
         
-        # Build context for Claude
-        context = _build_beauty_context(
-            today_skin=today_skin,
-            history_skin=history_skin,
-            activity_data=activity_data,
-            cycle_data=cycle_data
-        )
+        # Check if user has any data - if not, return early with null insights
+        has_data = bool(today_skin and today_skin.get('overall_score')) or bool(history_skin)
         
-        # Get Claude insights
-        ai_insights = _generate_beauty_insights(context)
+        # Only generate Claude insights if user has scan data
+        if has_data:
+            # Build context for Claude
+            context = _build_beauty_context(
+                today_skin=today_skin,
+                history_skin=history_skin,
+                activity_data=activity_data,
+                cycle_data=cycle_data
+            )
+            # Get Claude insights
+            ai_insights = _generate_beauty_insights(context)
+        else:
+            # No data - return None insights
+            ai_insights = None
         
         # Format history for UI display
         formatted_history = _format_history_for_ui(history_skin)
@@ -425,8 +432,33 @@ def get_beauty_overview(request: BeautyRequest) -> BeautyResponse:
                 cycle_phases=cycle_correlations
             )
         
-        # Create TodayScan instance from dict
-        today_obj = TodayScan(**today_skin) if today_skin else None
+        # Create TodayScan instance from dict with all required fields
+        if today_skin:
+            # Ensure all required fields are present
+            today_skin.setdefault('id', 0)
+            today_skin.setdefault('user_id', user_id)
+            today_skin.setdefault('image_path', "")
+            today_skin.setdefault('overall_score', 0)
+            today_skin.setdefault('hydration_score', 0)
+            today_skin.setdefault('redness_score', 0)
+            today_skin.setdefault('texture_score', 0)
+            today_skin.setdefault('glow_index', 0)
+            today_skin.setdefault('pore_health_score', 0)
+            today_skin.setdefault('elasticity_score', 0)
+            today_skin.setdefault('hydration_status', "")
+            today_skin.setdefault('redness_status', "")
+            today_skin.setdefault('texture_status', "")
+            today_skin.setdefault('glow_status', "")
+            today_skin.setdefault('pore_health_status', "")
+            today_skin.setdefault('elasticity_status', "")
+            today_skin.setdefault('neumera_insight', "")
+            today_skin.setdefault('created_at', "")
+            today_skin.setdefault('updated_at', "")
+            today_skin.setdefault('status_label', "Unknown")
+            today_skin.setdefault('findings', [])
+            today_obj = TodayScan(**today_skin)
+        else:
+            today_obj = None
         
         return BeautyResponse(
             today=today_obj or TodayScan(
@@ -795,19 +827,156 @@ def _calculate_cycle_phase_correlations(
     user_id: int,
     skin_data: list[dict[str, Any]]
 ) -> CyclePhases:
-    """Calculate skin scores by menstrual cycle phase. Returns CyclePhases instance."""
+    """Calculate skin scores by menstrual cycle phase. Personalized per user's actual data."""
     
-    # Always return safe defaults - don't try complex calculations
-    return CyclePhases(
-        phase_breakdown={
-            "menstrual": PhaseData(label="Menstrual (D1-5)", score=62, description="Increased inflammation & sensitivity"),
-            "follicular": PhaseData(label="Follicular (D6-13)", score=75, description="Rising estrogen boosts collagen & hydration"),
-            "ovulation": PhaseData(label="Ovulation (D14)", score=84, description="Peak glow & skin radiance"),
-            "luteal": PhaseData(label="Luteal (D15-28)", score=70, description="Progesterone causes texture issues"),
-        },
-        best_phase="ovulation",
-        worst_phase="menstrual"
-    )
+    # If no skin data, return baseline defaults
+    if not skin_data:
+        return CyclePhases(
+            phase_breakdown={
+                "menstrual": PhaseData(label="Menstrual (D1-5)", score=0, description="Increased inflammation & sensitivity"),
+                "follicular": PhaseData(label="Follicular (D6-13)", score=0, description="Rising estrogen boosts collagen & hydration"),
+                "ovulation": PhaseData(label="Ovulation (D14)", score=0, description="Peak glow & skin radiance"),
+                "luteal": PhaseData(label="Luteal (D15-28)", score=0, description="Progesterone causes texture issues"),
+            },
+            best_phase="ovulation",
+            worst_phase="menstrual"
+        )
+    
+    try:
+        from ai.utils.db import get_connection
+        
+        with get_connection() as conn:
+            cur = conn.cursor()
+            
+            # Get all cycles for this user to map scan dates to phases
+            cur.execute("""
+                SELECT period_start_date, period_end_date, cycle_length
+                FROM menstrual_cycles
+                WHERE user_id = %s
+                ORDER BY period_end_date DESC
+                LIMIT 24
+            """, (user_id,))
+            
+            cycles = cur.fetchall()
+            if not cycles:
+                # No cycle data, return defaults with score 0
+                return CyclePhases(
+                    phase_breakdown={
+                        "menstrual": PhaseData(label="Menstrual (D1-5)", score=0, description="Increased inflammation & sensitivity"),
+                        "follicular": PhaseData(label="Follicular (D6-13)", score=0, description="Rising estrogen boosts collagen & hydration"),
+                        "ovulation": PhaseData(label="Ovulation (D14)", score=0, description="Peak glow & skin radiance"),
+                        "luteal": PhaseData(label="Luteal (D15-28)", score=0, description="Progesterone causes texture issues"),
+                    },
+                    best_phase=None,
+                    worst_phase=None
+                )
+            
+            # Build phase scores from skin data mapped to cycle phases
+            phase_scores = {"menstrual": [], "follicular": [], "ovulation": [], "luteal": []}
+            
+            for scan in skin_data:
+                scan_date = scan.get('created_at')
+                if not scan_date:
+                    continue
+                
+                # Convert to date if datetime
+                if hasattr(scan_date, 'date'):
+                    scan_date = scan_date.date()
+                
+                # Find which cycle this scan falls into
+                for cycle in cycles:
+                    cycle_start = cycle.get('period_start_date')
+                    cycle_end = cycle.get('period_end_date')
+                    
+                    if not cycle_start or not cycle_end:
+                        continue
+                    
+                    if cycle_start <= scan_date <= cycle_end:
+                        # Calculate day in cycle
+                        days_in_cycle = (scan_date - cycle_start).days
+                        cycle_length = cycle.get('cycle_length') or 28
+                        
+                        # Map to phase
+                        if 0 <= days_in_cycle <= 4:
+                            phase = "menstrual"
+                        elif 5 <= days_in_cycle <= 12:
+                            phase = "follicular"
+                        elif 13 <= days_in_cycle <= 13:
+                            phase = "ovulation"
+                        else:  # 14-28
+                            phase = "luteal"
+                        
+                        # Add score
+                        score = scan.get('overall_score')
+                        if score is not None:
+                            try:
+                                phase_scores[phase].append(float(score))
+                            except (TypeError, ValueError):
+                                pass
+                        break
+            
+            # Calculate averages for each phase
+            phase_breakdown = {}
+            for phase in ["menstrual", "follicular", "ovulation", "luteal"]:
+                scores = phase_scores[phase]
+                avg_score = int(sum(scores) / len(scores)) if scores else 0
+                
+                descriptions = {
+                    "menstrual": "Increased inflammation & sensitivity",
+                    "follicular": "Rising estrogen boosts collagen & hydration",
+                    "ovulation": "Peak glow & skin radiance",
+                    "luteal": "Progesterone causes texture issues"
+                }
+                labels = {
+                    "menstrual": "Menstrual (D1-5)",
+                    "follicular": "Follicular (D6-13)",
+                    "ovulation": "Ovulation (D14)",
+                    "luteal": "Luteal (D15-28)"
+                }
+                
+                phase_breakdown[phase] = PhaseData(
+                    label=labels[phase],
+                    score=min(100, max(0, avg_score)),
+                    description=descriptions[phase]
+                )
+            
+            # Determine best and worst phases - only if data exists
+            scores_list = [(phase, data.score) for phase, data in phase_breakdown.items()]
+            
+            # Only set best/worst if we have actual data (max score > 0)
+            if scores_list:
+                max_score = max(s[1] for s in scores_list)
+                min_score = min(s[1] for s in scores_list)
+                
+                if max_score > 0:  # Only if there's actual data
+                    best_phase = max(scores_list, key=lambda x: x[1])[0]
+                    worst_phase = min(scores_list, key=lambda x: x[1])[0]
+                else:  # All zeros, no data
+                    best_phase = None
+                    worst_phase = None
+            else:
+                best_phase = None
+                worst_phase = None
+            
+            return CyclePhases(
+                phase_breakdown=phase_breakdown,
+                best_phase=best_phase,
+                worst_phase=worst_phase
+            )
+    
+    except Exception as exc:
+        print(f"Error calculating cycle phase correlations: {exc}")
+        # Fallback to safe defaults
+        return CyclePhases(
+            phase_breakdown={
+                "menstrual": PhaseData(label="Menstrual (D1-5)", score=0, description="Increased inflammation & sensitivity"),
+                "follicular": PhaseData(label="Follicular (D6-13)", score=0, description="Rising estrogen boosts collagen & hydration"),
+                "ovulation": PhaseData(label="Ovulation (D14)", score=0, description="Peak glow & skin radiance"),
+                "luteal": PhaseData(label="Luteal (D15-28)", score=0, description="Progesterone causes texture issues"),
+            },
+            best_phase=None,
+            worst_phase=None
+        )
 
 
 def _calculate_correlations(
