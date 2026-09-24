@@ -1,0 +1,175 @@
+"""Pydantic models for Pregnancy & Postpartum API."""
+
+from pydantic import BaseModel, Field
+from typing import Optional, List, Dict, Any
+from datetime import date, datetime
+
+
+# ============================================================================
+# PREGNANCY SUMMARY MODELS
+# ============================================================================
+
+class PregnancyAlert(BaseModel):
+    """Alert for pregnancy-related monitoring."""
+    message: str = Field(..., description="Alert message")
+    severity: str = Field(..., description="low, medium, high")
+    action_required: bool = Field(default=False)
+
+
+class PregnancySummary(BaseModel):
+    """Pregnancy summary with current status."""
+    is_pregnant: bool = Field(..., description="Whether user is currently pregnant")
+    current_week: int = Field(..., ge=0, le=40, description="Current pregnancy week (0-40)")
+    current_trimester: str = Field(..., description="First, Second, or Third")
+    due_date: Optional[str] = Field(None, description="Expected due date (ISO format)")
+    days_until_due: Optional[int] = Field(None, ge=0, description="Days remaining until due date")
+    last_prenatal_visit: Optional[str] = Field(None, description="Date of last prenatal visit")
+    next_appointment: Optional[str] = Field(None, description="Date of next scheduled appointment")
+    health_status: str = Field(default="good", description="good, fair, needs_attention")
+    alerts: List[PregnancyAlert] = Field(default_factory=list, description="Active pregnancy alerts")
+
+
+# ============================================================================
+# PREGNANCY MILESTONES MODELS
+# ============================================================================
+
+class BabyDevelopment(BaseModel):
+    """Baby development information for current week."""
+    week: int = Field(..., ge=0, le=40)
+    size: str = Field(..., description="Baby size comparison (e.g., 'size of a lemon')")
+    weight: str = Field(..., description="Baby weight (e.g., '1.3 lbs')")
+    features: List[str] = Field(..., description="Key development milestones")
+
+
+class BodyChanges(BaseModel):
+    """Expected body changes during pregnancy."""
+    week: int = Field(..., ge=0, le=40)
+    physical_changes: List[str] = Field(..., description="Expected body changes")
+    common_symptoms: List[str] = Field(..., description="Common symptoms during this week")
+
+
+class NutritionFocus(BaseModel):
+    """Nutrition recommendations for pregnancy stage."""
+    macro_nutrients: Dict[str, str] = Field(..., description="Key nutrients and daily intake")
+    food_groups: List[str] = Field(..., description="Important food groups to focus on")
+    avoid: List[str] = Field(..., description="Foods/substances to avoid during pregnancy")
+
+
+class SafeExercise(BaseModel):
+    """Exercise recommendations for pregnancy."""
+    recommended: List[str] = Field(..., description="Safe exercises for this trimester")
+    avoid: List[str] = Field(..., description="Exercises to avoid")
+    intensity_level: str = Field(..., description="low, moderate, high")
+
+
+class ClinicalMonitoring(BaseModel):
+    """Clinical monitoring and tests for this week."""
+    week: int = Field(..., ge=0, le=40)
+    screenings: List[str] = Field(..., description="Recommended screenings")
+    tests: List[str] = Field(..., description="Recommended tests")
+    vital_checks: List[str] = Field(..., description="Vital sign checks")
+
+
+class PregnancyMilestones(BaseModel):
+    """Complete pregnancy milestones for a specific week."""
+    week: int = Field(..., ge=0, le=40)
+    trimester: str = Field(..., description="First, Second, or Third")
+    baby_development: BabyDevelopment
+    your_body: BodyChanges
+    nutrition_focus: NutritionFocus
+    safe_exercises: SafeExercise
+    clinical_monitoring: ClinicalMonitoring
+
+
+# ============================================================================
+# POSTPARTUM RECOVERY MODELS
+# ============================================================================
+
+class RecoveryMetrics(BaseModel):
+    """Physical recovery metrics for postpartum."""
+    physical_recovery_percent: int = Field(..., ge=0, le=100, description="Overall physical recovery percentage")
+    bleeding_level: str = Field(..., description="heavy, moderate, light, minimal")
+    incision_healing: Optional[str] = Field(None, description="good, fair, needs_attention (if C-section)")
+    pelvic_floor_status: str = Field(..., description="healing, recovered, needs_attention")
+    energy_level: int = Field(..., ge=0, le=10, description="Energy level 0-10")
+
+
+class MentalHealth(BaseModel):
+    """Postpartum mental health assessment."""
+    mood_stability: int = Field(..., ge=0, le=100, description="Mood stability score")
+    anxiety_level: int = Field(..., ge=0, le=10, description="Anxiety level 0-10")
+    depression_screening: str = Field(..., description="low_risk, moderate_risk, high_risk")
+    last_mood_entry: Optional[str] = Field(None, description="Last mood log date")
+    mood_trend: str = Field(..., description="improving, stable, declining")
+    supportive_resources: List[str] = Field(default_factory=list, description="Available support resources")
+
+
+class PostpartumAlert(BaseModel):
+    """Alert for postpartum monitoring."""
+    type: str = Field(..., description="bleeding, infection, mental_health, pain, other")
+    level: str = Field(..., description="low, moderate, high")
+    message: str = Field(..., description="Alert message and recommended action")
+
+
+class PostpartumRecovery(BaseModel):
+    """Complete postpartum recovery overview."""
+    postpartum_week: int = Field(..., ge=0, le=12, description="Weeks since delivery")
+    delivery_method: str = Field(..., description="vaginal or cesarean")
+    recovery_metrics: RecoveryMetrics
+    mental_health: MentalHealth
+    activity_level: str = Field(..., description="minimal, light, moderate, active")
+    sleep_hours: float = Field(..., ge=0, le=24, description="Average sleep hours per night")
+    postpartum_alerts: List[PostpartumAlert] = Field(default_factory=list)
+    next_follow_up: Optional[str] = Field(None, description="Date of next postpartum checkup")
+
+
+# ============================================================================
+# SUPPORT COMMUNITY MODELS
+# ============================================================================
+
+class SupportGroup(BaseModel):
+    """Support community/group information."""
+    id: int = Field(..., description="Group ID")
+    name: str = Field(..., description="Group name")
+    description: str = Field(..., description="Group description")
+    life_stage: str = Field(..., description="pregnancy, postpartum, etc.")
+    member_count: int = Field(..., ge=0, description="Total members in group")
+    active_users_today: int = Field(..., ge=0, description="Active members today")
+    latest_posts_count: int = Field(..., ge=0, description="Recent posts in this group")
+    is_moderated: bool = Field(..., description="Whether group is professionally moderated")
+    join_status: str = Field(..., description="joined, not_joined")
+    created_at: Optional[str] = Field(None, description="Group creation date")
+
+
+class SupportGroupResponse(BaseModel):
+    """Response for support groups listing."""
+    groups: List[SupportGroup] = Field(..., description="List of support groups")
+    total_groups: int = Field(..., ge=0, description="Total number of groups")
+    user_joined_count: int = Field(..., ge=0, description="Number of groups user has joined")
+
+
+# ============================================================================
+# REQUEST MODELS
+# ============================================================================
+
+class PregnancyRequest(BaseModel):
+    """Request for pregnancy information."""
+    user_id: int = Field(..., ge=1, description="User ID")
+
+
+class PregnancyMilestonesRequest(BaseModel):
+    """Request for specific pregnancy week milestones."""
+    user_id: int = Field(..., ge=1, description="User ID")
+    week: Optional[int] = Field(None, ge=0, le=40, description="Specific week (optional, defaults to current)")
+
+
+class PostpartumRecoveryRequest(BaseModel):
+    """Request for postpartum recovery data."""
+    user_id: int = Field(..., ge=1, description="User ID")
+
+
+class SupportGroupsRequest(BaseModel):
+    """Request for support groups."""
+    life_stage: str = Field(..., description="pregnancy or postpartum")
+    limit: Optional[int] = Field(10, ge=1, le=50, description="Max groups to return")
+    offset: Optional[int] = Field(0, ge=0, description="Pagination offset")
