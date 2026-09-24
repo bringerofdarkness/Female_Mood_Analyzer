@@ -9,9 +9,10 @@
 
 ## 📋 Overview
 
-**4-Endpoint Production-Ready API** for pregnancy and postpartum health tracking with:
+**5-Endpoint Production-Ready API** for pregnancy and postpartum health tracking with:
 - Real-time pregnancy week & trimester calculation
 - Week-by-week milestones (baby development, body changes, nutrition, exercises)
+- Full clinical tests timeline across entire pregnancy (Figma UI-aligned)
 - Postpartum recovery metrics (physical + mental health)
 - Support community recommendations
 
@@ -148,7 +149,59 @@ GET /api/v1/pregnancy/milestones?user_id=2&week=24
 
 ---
 
-### **Endpoint 3: Postpartum Recovery**
+### **Endpoint 3: Clinical Timeline (Figma UI View)**
+```http
+GET /api/v1/pregnancy/clinical-timeline?user_id=2&week=24
+```
+
+**Purpose:** Get all clinical tests scheduled across entire pregnancy with dates - optimized for timeline UI display
+
+**Query Parameters:**
+- `user_id` (int, required): User ID
+- `week` (int, optional): Current pregnancy week (0-40). If omitted, uses current week.
+
+**Response (200):**
+```json
+{
+  "week": 24,
+  "trimester": "Second",
+  "clinical_tests": [
+    {
+      "name": "Anatomy Scan",
+      "week": "W20",
+      "date": "Oct 2"
+    },
+    {
+      "name": "Glucose Tolerance Test",
+      "week": "W24",
+      "date": "Nov 8 (Today)"
+    },
+    {
+      "name": "Anti-D Injection",
+      "week": "W28",
+      "date": "Dec 6"
+    },
+    {
+      "name": "Growth Scan",
+      "week": "W32",
+      "date": "Jan 3"
+    },
+    {
+      "name": "GBS Swab + Birth Plan",
+      "week": "W36",
+      "date": "Jan 31"
+    }
+  ],
+  "clinical_warning_signs": "Seek immediate care for severe headache, vision changes, sudden swelling, decreased fetal movement, or vaginal bleeding."
+}
+```
+
+**Use Case:**
+Perfect for displaying Figma mockup UI timeline showing all clinical tests across entire pregnancy.
+
+---
+
+### **Endpoint 4: Postpartum Recovery**
 ```http
 GET /api/v1/postpartum/recovery?user_id=2
 ```
@@ -203,7 +256,7 @@ GET /api/v1/postpartum/recovery?user_id=2
 
 ---
 
-### **Endpoint 4: Support Communities**
+### **Endpoint 5: Support Communities**
 ```http
 GET /api/v1/community/support-groups?life_stage=postpartum&limit=10
 ```
@@ -250,7 +303,55 @@ GET /api/v1/community/support-groups?life_stage=postpartum&limit=10
 
 ---
 
-## 📁 Implementation Files
+## � Data Sources Breakdown
+
+### **Endpoint 1: Pregnancy Summary**
+| Field | Source | Details |
+|-------|--------|---------|
+| `is_pregnant` | DATABASE | Check `profiles.life_stage_id = 3` for user |
+| `current_week` | CALCULATED | Formula: `(TODAY - menstrual_cycles.period_start_date) / 7` |
+| `current_trimester` | CALCULATED | Mapped from week: First (0-12), Second (13-27), Third (28-40) |
+| `due_date` | CALCULATED | Formula: `menstrual_cycles.period_start_date + 280 days` |
+| `days_until_due` | CALCULATED | Formula: `(due_date - TODAY).days` |
+| `alerts` | HARDCODED | Generated from pregnancy week using `_generate_pregnancy_alerts()` function |
+
+### **Endpoint 2: Pregnancy Milestones**
+| Field | Source | Details |
+|-------|--------|---------|
+| `week` | PARAMETER | User-provided or calculated from `current_week` |
+| `trimester` | CALCULATED | Mapped from week parameter |
+| `baby_development` | HARDCODED | From `PREGNANCY_MILESTONES_DATA[week]["baby"]` (ACOG guidelines) |
+| `your_body` | HARDCODED | From `PREGNANCY_MILESTONES_DATA[week]["body"]` (medical standards) |
+| `nutrition_focus` | HARDCODED | From `PREGNANCY_MILESTONES_DATA[week]["nutrition"]` |
+| `safe_exercises` | HARDCODED | From `PREGNANCY_MILESTONES_DATA[week]["exercises"]` |
+| `clinical_monitoring` | HARDCODED | Array of tests from `PREGNANCY_MILESTONES_DATA[week]["clinical_tests"]` |
+| `clinical_warning_signs` | HARDCODED | From `PREGNANCY_MILESTONES_DATA[week]["warning_signs"]` |
+
+### **Endpoint 3: Postpartum Recovery**
+| Field | Source | Details |
+|-------|--------|---------|
+| `is_postpartum` | DATABASE | Check `profiles.life_stage_id = 4` for user |
+| `postpartum_week` | CALCULATED | Formula: `(TODAY - menstrual_cycles.period_end_date) / 7` |
+| `delivery_method` | DATABASE | Currently defaults to "vaginal" (should come from dedicated table) |
+| `hormonal_balance_percent` | CALCULATED | Week-based scaling: Week 0-2: 30%, Week 3-6: 50-62%, Week 7-12: 75-90% |
+| `energy_level_percent` | CALCULATED | From `health_logs.energy_level` scaled to 0-100% |
+| `sleep_quality_percent` | CALCULATED | From `health_logs` sleep tracking scaled to 0-100% |
+| `mood_stability` | DATABASE | Aggregated from `health_logs.mood` (0-100 scale) |
+| `anxiety_level` | DATABASE | From `health_logs` anxiety tracking |
+| `depression_screening` | DATABASE | Inferred from `health_logs` mood patterns |
+| `postpartum_alerts` | CALCULATED | Generated based on recovery metrics and risk factors |
+
+### **Endpoint 4: Support Communities**
+| Field | Source | Details |
+|-------|--------|---------|
+| `groups` | DATABASE | Query: `SELECT * FROM community_posts WHERE tags LIKE '%{life_stage}%'` |
+| `member_count` | DATABASE | Aggregated count from `community_posts` per tag |
+| `active_users_today` | DATABASE | Count from `community_posts` with `created_at >= TODAY` |
+| `latest_posts_count` | DATABASE | Recent post count per community |
+
+---
+
+## �📁 Implementation Files
 
 | File | Lines | Purpose |
 |------|-------|---------|

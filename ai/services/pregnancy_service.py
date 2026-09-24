@@ -5,88 +5,97 @@ from typing import Any, Dict, Optional
 from pymysql.cursors import DictCursor
 
 from ai.models.pregnancy_models import (
-    PregnancySummary, PregnancyAlert, PregnancyMilestones,
-    BabyDevelopment, BodyChanges, NutritionFocus, SafeExercise, ClinicalMonitoring,
+    PregnancySummary, PregnancyAlert, PregnancyMilestones, ClinicalTest,
     PostpartumRecovery, RecoveryMetrics, MentalHealth, PostpartumAlert,
     SupportGroup, SupportGroupResponse
 )
 
 
 # ============================================================================
-# PREGNANCY MILESTONES DATA (Hardcoded by Week)
+# PREGNANCY MILESTONES DATA - UI-ALIGNED NARRATIVE FORMAT
 # ============================================================================
 
 PREGNANCY_MILESTONES_DATA = {
-    # Format: week: {baby_dev, body_changes, nutrition, exercises, clinical}
+    # Format: week: {baby, body, nutrition, exercises, clinical_tests, warning_signs}
     0: {
-        "baby": {"size": "Fertilized egg", "weight": "Microscopic", "features": ["Conception", "Cell division begins"]},
-        "body": {"changes": ["None yet", "Implantation"], "symptoms": ["None yet"]},
-        "nutrition": {"macros": {"Folic Acid": "400 mcg/day", "Iron": "27 mg/day", "Calcium": "1000 mg/day"}, "foods": ["Leafy greens", "Fortified cereals", "Dairy"], "avoid": ["Raw fish", "Alcohol", "Caffeine (limit)"]},
-        "exercises": {"recommended": ["Walking", "Yoga", "Swimming"], "avoid": ["Contact sports"], "intensity": "moderate"},
-        "clinical": {"screenings": [], "tests": [], "vitals": ["Baseline blood pressure"]}
+        "baby": "Conception begins. Sperm fertilizes egg and cell division starts rapidly.",
+        "body": "No visible changes yet. Implantation occurs in uterine lining.",
+        "nutrition": "Start prenatal vitamins with folic acid. Aim for balanced diet with leafy greens and dairy.",
+        "exercises": "Continue your normal routine. Walking, yoga, and swimming are all safe.",
+        "clinical_tests": [{"name": "Baseline Visit", "week": "W0", "date": "Sep 24"}],
+        "warning_signs": "Contact your doctor if you experience severe abdominal pain or unusual bleeding."
     },
     8: {
-        "baby": {"size": "Raspberry", "weight": "0.04 oz", "features": ["Heart forming", "Limb buds visible", "Neural tube closing"]},
-        "body": {"changes": ["Fatigue", "Breast tenderness", "Nausea possible"], "symptoms": ["Morning sickness", "Food aversions"]},
-        "nutrition": {"macros": {"Protein": "70g/day", "Calcium": "1000 mg/day", "Iron": "27 mg/day"}, "foods": ["Eggs", "Nuts", "Yogurt"], "avoid": ["Unpasteurized cheese", "Deli meats", "High mercury fish"]},
-        "exercises": {"recommended": ["Walking", "Swimming", "Prenatal yoga"], "avoid": ["High-impact"], "intensity": "moderate"},
-        "clinical": {"screenings": ["Confirm pregnancy"], "tests": ["Ultrasound"], "vitals": ["Blood pressure", "Weight"]}
+        "baby": "Heart forming and beating. Limb buds are visible. Neural tube is closing to form the brain and spinal cord.",
+        "body": "Morning sickness may start. Fatigue and breast tenderness are common. You might notice food aversions.",
+        "nutrition": "Protein 70g/day, Calcium 1000mg/day essential. Eat eggs, nuts, and yogurt. Avoid high-mercury fish.",
+        "exercises": "Walking, swimming, and prenatal yoga are safe. Avoid high-impact activities.",
+        "clinical_tests": [{"name": "Confirm Pregnancy", "week": "W8", "date": "Nov 5"}, {"name": "Ultrasound", "week": "W8", "date": "Nov 5"}],
+        "warning_signs": "Seek care for severe abdominal pain, heavy bleeding, or signs of ectopic pregnancy."
     },
     12: {
-        "baby": {"size": "Plum", "weight": "0.5 oz", "features": ["Fingers and toes forming", "Reflexes developing", "External genitalia forming"]},
-        "body": {"changes": ["Belly growth begins", "Hormonal changes", "Increased urination"], "symptoms": ["Mood swings", "Fatigue", "Nausea"]},
-        "nutrition": {"macros": {"Protein": "70g/day", "Folic Acid": "600 mcg/day", "Iron": "27 mg/day"}, "foods": ["Citrus fruits", "Broccoli", "Red meat"], "avoid": ["Alcohol", "Undercooked meat", "Unpasteurized dairy"]},
-        "exercises": {"recommended": ["Walking", "Swimming", "Prenatal yoga", "Pelvic floor exercises"], "avoid": ["Heavy lifting", "Contact sports"], "intensity": "moderate"},
-        "clinical": {"screenings": ["First trimester screening"], "tests": ["Nuchal translucency ultrasound", "Blood tests"], "vitals": ["Weight", "Blood pressure", "Urine test"]}
+        "baby": "Size of a plum. Fingers and toes are forming. Reflexes are developing and external genitalia are forming.",
+        "body": "Your belly is starting to show. Hormonal changes are ongoing. You might urinate more frequently.",
+        "nutrition": "Protein 70g/day, Folic Acid 600mcg, Iron 27mg essential. Focus on citrus, broccoli, and lean red meat.",
+        "exercises": "Walking, swimming, prenatal yoga, and pelvic floor exercises are all beneficial. Avoid heavy lifting.",
+        "clinical_tests": [{"name": "First Trimester Screening", "week": "W12", "date": "Nov 12"}, {"name": "Nuchal Ultrasound", "week": "W12", "date": "Nov 12"}],
+        "warning_signs": "Report severe cramping, heavy bleeding, or signs of miscarriage to your doctor immediately."
     },
     16: {
-        "baby": {"size": "Avocado", "weight": "2.8 oz", "features": ["Facial features more defined", "Ears moving to side of head", "Hair follicles forming"]},
-        "body": {"changes": ["Visible belly", "Skin changes", "Weight gain ~3-5 lbs"], "symptoms": ["Reduced nausea", "Increased appetite", "Backaches"]},
-        "nutrition": {"macros": {"Protein": "70g/day", "Calcium": "1000 mg/day", "Iron": "27 mg/day"}, "foods": ["Salmon", "Almonds", "Sweet potatoes"], "avoid": ["Caffeine >200mg/day", "Raw sprouts"]},
-        "exercises": {"recommended": ["Walking 30min", "Swimming", "Prenatal yoga"], "avoid": ["Lying flat on back >10min"], "intensity": "moderate"},
-        "clinical": {"screenings": ["Quad screen (optional)"], "tests": ["Maternal serum alpha-fetoprotein"], "vitals": ["Weight", "Blood pressure"]}
+        "baby": "Size of an avocado. Facial features are becoming more defined. Ears are moving to the sides and hair follicles are forming.",
+        "body": "Your belly is clearly visible now. Skin changes may appear. You've likely gained 3-5 lbs and nausea should be decreasing.",
+        "nutrition": "Salmon, almonds, and sweet potatoes are great. Limit caffeine to less than 200mg/day.",
+        "exercises": "30-minute walks, swimming, and prenatal yoga are safe and beneficial. Avoid lying flat on your back.",
+        "clinical_tests": [{"name": "Quad Screen", "week": "W16", "date": "Nov 19"}, {"name": "AFP Test", "week": "W16", "date": "Nov 19"}],
+        "warning_signs": "Contact doctor for severe headaches, vision changes, or swelling in hands and face."
     },
     20: {
-        "baby": {"size": "Banana", "weight": "10.2 oz", "features": ["Unique fingerprints forming", "Swallowing and hiccupping", "Hair and eyebrows visible"]},
-        "body": {"changes": ["Pronounced belly", "Stretch marks appear", "Weight gain ~10 lbs"], "symptoms": ["Braxton Hicks contractions", "Leg cramps", "Back pain"]},
-        "nutrition": {"macros": {"Protein": "70g/day", "Calcium": "1000 mg/day", "Iron": "27 mg/day"}, "foods": ["Legumes", "Whole grains", "Leafy greens"], "avoid": ["Unpasteurized soft cheese", "High mercury fish"]},
-        "exercises": {"recommended": ["Walking", "Swimming", "Prenatal yoga", "Pelvic exercises"], "avoid": ["Heavy lifting >25 lbs"], "intensity": "moderate"},
-        "clinical": {"screenings": ["Mid-pregnancy ultrasound"], "tests": ["Structural ultrasound"], "vitals": ["Weight", "Glucose screening check"]}
+        "baby": "Size of a banana. Unique fingerprints are forming. Baby can swallow and hiccup. Hair and eyebrows are visible.",
+        "body": "Your belly is very pronounced. Stretch marks may appear. You've gained about 10 lbs. Back pain and leg cramps are common.",
+        "nutrition": "Legumes, whole grains, and leafy greens are essential. Iron 27mg/day supports baby's growth.",
+        "exercises": "Walking, swimming, prenatal yoga, and pelvic exercises are all safe. Avoid lifting more than 25 lbs.",
+        "clinical_tests": [{"name": "Anatomy Scan", "week": "W20", "date": "Oct 2"}],
+        "warning_signs": "Watch for sudden swelling, severe headaches, vision changes, or decreased fetal movement."
     },
     24: {
-        "baby": {"size": "Corn on the cob", "weight": "1.3 lbs", "features": ["Lungs producing surfactant", "Can hear mother's heartbeat", "Beginning to blink"]},
-        "body": {"changes": ["Weight gain ~12-18 lbs", "Braxton Hicks contractions", "Back pain common"], "symptoms": ["Swollen ankles", "Heartburn", "Fatigue"]},
-        "nutrition": {"macros": {"Iron": "27 mg/day", "Calcium": "1000 mg/day", "Protein": "70g/day"}, "foods": ["Iron-rich: spinach, beef", "Calcium: yogurt, cheese", "Protein: eggs, tofu"], "avoid": ["Limit caffeine", "No alcohol"]},
-        "exercises": {"recommended": ["Walking", "Swimming", "Prenatal yoga", "Kegel exercises"], "avoid": ["Excessive steady-state cardio"], "intensity": "moderate"},
-        "clinical": {"screenings": ["Glucose tolerance test"], "tests": ["Blood glucose test", "Full blood count"], "vitals": ["Weight", "Blood pressure", "Urine check"]}
+        "baby": "Lungs developing rapidly. Eyes partially open. Responds to sound. Baby can hear your heartbeat.",
+        "body": "Uterus now above belly button. Braxton Hicks contractions may begin. You've gained 12-18 lbs total.",
+        "nutrition": "Iron & Omega-3 critical. Aim for 300 extra calories/day. Focus on spinach, beef, yogurt, cheese, eggs, and tofu.",
+        "exercises": "Swimming, walking, prenatal yoga all safe and beneficial. Kegel exercises strengthen pelvic floor.",
+        "clinical_tests": [{"name": "Glucose Tolerance Test", "week": "W24", "date": "Nov 8 (Today)"}, {"name": "Full Blood Count", "week": "W24", "date": "Nov 8"}],
+        "warning_signs": "Seek immediate care for severe headache, vision changes, sudden swelling, decreased fetal movement, or vaginal bleeding."
     },
     28: {
-        "baby": {"size": "Large eggplant", "weight": "2.2 lbs", "features": ["Opening and closing eyes", "Responds to sounds and light", "Sleep-wake cycles"]},
-        "body": {"changes": ["Increased swelling", "Darkened skin patches", "Leaky breasts possible"], "symptoms": ["Insomnia", "Leg cramps", "Constipation"]},
-        "nutrition": {"macros": {"Iron": "27 mg/day", "Fiber": "25-35g/day", "Calcium": "1000 mg/day"}, "foods": ["Whole grain bread", "Beans", "Prunes"], "avoid": ["Spicy foods if heartburn"]},
-        "exercises": {"recommended": ["Walking 30-40min", "Prenatal yoga", "Pelvic floor exercises"], "avoid": ["High-impact activities"], "intensity": "light to moderate"},
-        "clinical": {"screenings": ["Complete blood count"], "tests": ["Rh antibody screen", "Repeat glucose test if needed"], "vitals": ["Weight", "Blood pressure"]}
+        "baby": "Eyes opening and closing. Responds to sounds and light. Sleep-wake cycles are establishing.",
+        "body": "Increased swelling is normal. Darkened skin patches (melasma) may appear. Breasts may leak colostrum.",
+        "nutrition": "Fiber 25-35g/day prevents constipation. Whole grain bread, beans, and prunes are excellent choices.",
+        "exercises": "Walking 30-40 minutes, prenatal yoga, and pelvic floor exercises. Avoid high-impact activities.",
+        "clinical_tests": [{"name": "Anti-D Injection", "week": "W28", "date": "Dec 6"}],
+        "warning_signs": "Report signs of preterm labor: regular contractions, pelvic pressure, or vaginal fluid leakage."
     },
     32: {
-        "baby": {"size": "Jicama/squash", "weight": "3.8 lbs", "features": ["Fingernails form", "Toenails form", "Coordination improves"]},
-        "body": {"changes": ["Weight gain ~20-25 lbs total", "Shortness of breath", "Difficulty sleeping"], "symptoms": ["Hemorrhoids", "Varicose veins", "Muscle aches"]},
-        "nutrition": {"macros": {"Protein": "70g/day", "Calcium": "1000 mg/day", "Omega-3": "200-300 mg/day"}, "foods": ["Fish (low mercury)", "Nuts", "Seeds"], "avoid": []},
-        "exercises": {"recommended": ["Walking", "Swimming", "Modified yoga"], "avoid": ["Lying on back", "Heavy lifting"], "intensity": "light"},
-        "clinical": {"screenings": ["Check for gestational diabetes complications"], "tests": ["Blood pressure monitoring"], "vitals": ["Weight", "Blood pressure check"]}
+        "baby": "Fingernails and toenails are fully formed. Baby's coordination is improving. Brain is developing rapidly.",
+        "body": "You've gained 20-25 lbs total. Shortness of breath is normal. Sleeping may become difficult due to size.",
+        "nutrition": "Omega-3 200-300mg/day from low-mercury fish, nuts, and seeds supports baby's brain development.",
+        "exercises": "Gentle walking, swimming, and modified yoga. Avoid lying flat on your back. No heavy lifting.",
+        "clinical_tests": [{"name": "Growth Scan", "week": "W32", "date": "Jan 3"}],
+        "warning_signs": "Seek care immediately for signs of preeclampsia, placental issues, or decreased baby movement."
     },
     36: {
-        "baby": {"size": "Head of romaine lettuce", "weight": "5.5 lbs", "features": ["Fingernails grown to fingertips", "Position to head-down (ideally)", "Able to turn head side to side"]},
-        "body": {"changes": ["Belly drops (lightening)", "Increased Braxton Hicks", "Pelvic pressure"], "symptoms": ["Frequent urination", "Pelvic pain", "Insomnia"]},
-        "nutrition": {"macros": {"Protein": "70g/day", "Iron": "27 mg/day", "Calcium": "1000 mg/day"}, "foods": ["Easy-to-digest proteins", "Iron-rich foods"], "avoid": ["Heavy meals before bed"]},
-        "exercises": {"recommended": ["Gentle walking", "Pelvic floor exercises", "Relaxation"], "avoid": ["Strenuous activities"], "intensity": "very light"},
-        "clinical": {"screenings": ["Check fetal position"], "tests": ["Non-stress test if indicated"], "vitals": ["Weight", "Blood pressure", "Baby position check"]}
+        "baby": "Baby weighs about 5.5 lbs and is ideally in head-down position. Baby can turn their head side to side.",
+        "body": "Your belly may drop (lightening). Braxton Hicks increase. You'll feel more pelvic pressure and need to urinate frequently.",
+        "nutrition": "Easy-to-digest proteins and iron-rich foods. Avoid heavy meals before bed to reduce heartburn.",
+        "exercises": "Gentle walking, pelvic floor exercises, and relaxation techniques. Avoid strenuous activities.",
+        "clinical_tests": [{"name": "GBS Swab & Birth Plan", "week": "W36", "date": "Jan 31"}],
+        "warning_signs": "Contact hospital if contractions are regular, water breaks, heavy bleeding, or severe abdominal pain occurs."
     },
     40: {
-        "baby": {"size": "Small watermelon", "weight": "6.5-8.5 lbs", "features": ["Fully developed", "Ready for birth", "All systems functional"]},
-        "body": {"changes": ["Extreme fatigue", "Mood swings", "Cervical changes"], "symptoms": ["Labor signs", "Bloody show", "Contractions"]},
-        "nutrition": {"macros": {"Calories": "2500-2700/day", "Protein": "70g/day"}, "foods": ["Light, nutritious meals", "Hydration"], "avoid": ["Heavy meals"]},
-        "exercises": {"recommended": ["Light walking", "Relaxation techniques"], "avoid": ["All except light walking"], "intensity": "minimal"},
-        "clinical": {"screenings": ["Prepare for delivery"], "tests": ["Non-stress tests", "Cervical exams"], "vitals": ["Daily monitoring", "Ready for labor"]}
+        "baby": "Your baby is fully developed at 6.5-8.5 lbs and ready for birth. All major organs are functional.",
+        "body": "Extreme fatigue, mood swings, and cervical changes signal labor may be near. You're at term!",
+        "nutrition": "Light, nutritious meals and plenty of water. Eat 2500-2700 calories daily to maintain energy for labor.",
+        "exercises": "Light walking only. Rest, relaxation techniques, and pelvic floor exercises to prepare for birth.",
+        "clinical_tests": [{"name": "Delivery Prep", "week": "W40", "date": "Mar 15"}],
+        "warning_signs": "Go to hospital if contractions are regular 5 minutes apart, water breaks, heavy bleeding, or severe pain occurs."
     }
 }
 
@@ -195,7 +204,7 @@ def pregnancy_summary(user_id: int) -> Dict[str, Any]:
 
 
 def pregnancy_milestones(user_id: int, week: Optional[int] = None) -> Dict[str, Any]:
-    """Get pregnancy milestones for specific week."""
+    """Get pregnancy milestones for specific week - UI-aligned narrative format."""
     try:
         from ai.utils.db import get_connection
         
@@ -222,35 +231,76 @@ def pregnancy_milestones(user_id: int, week: Optional[int] = None) -> Dict[str, 
         else:
             trimester = "Third"
         
+        # Parse clinical tests (convert from dict format to ClinicalTest objects)
+        from ai.models.pregnancy_models import ClinicalTest
+        clinical_tests = [
+            ClinicalTest(name=test["name"], week=test["week"], date=test["date"])
+            for test in data.get("clinical_tests", [])
+        ]
+        
         return PregnancyMilestones(
             week=week,
             trimester=trimester,
-            baby_development=BabyDevelopment(**data["baby"], week=week),
-            your_body=BodyChanges(
-                week=week,
-                physical_changes=data["body"]["changes"],
-                common_symptoms=data["body"]["symptoms"]
-            ),
-            nutrition_focus=NutritionFocus(
-                macro_nutrients=data["nutrition"]["macros"],
-                food_groups=data["nutrition"]["foods"],
-                avoid=data["nutrition"]["avoid"]
-            ),
-            safe_exercises=SafeExercise(
-                recommended=data["exercises"]["recommended"],
-                avoid=data["exercises"]["avoid"],
-                intensity_level=data["exercises"]["intensity"]
-            ),
-            clinical_monitoring=ClinicalMonitoring(
-                week=week,
-                screenings=data["clinical"]["screenings"],
-                tests=data["clinical"]["tests"],
-                vital_checks=data["clinical"]["vitals"]
-            )
+            baby_development=data.get("baby", ""),
+            your_body=data.get("body", ""),
+            nutrition_focus=data.get("nutrition", ""),
+            safe_exercises=data.get("exercises", ""),
+            clinical_monitoring=clinical_tests,
+            clinical_warning_signs=data.get("warning_signs", "")
         ).model_dump(exclude_none=False)
     
     except Exception as e:
         print(f"[ERROR] pregnancy_milestones failed for user {user_id}, week {week}: {e}")
+        return {"status": "error", "message": str(e), "user_id": user_id}
+
+
+def pregnancy_clinical_timeline(user_id: int, week: Optional[int] = None) -> Dict[str, Any]:
+    """Get all clinical tests across entire pregnancy with dates - UI timeline view."""
+    try:
+        from ai.utils.db import get_connection
+        
+        # Get current week if not specified
+        if week is None:
+            summary = pregnancy_summary(user_id)
+            if summary.get("is_pregnant"):
+                week = summary.get("current_week", 20)
+            else:
+                week = 20  # Default to mid-pregnancy
+        
+        # Validate week
+        week = max(0, min(40, week))
+        
+        # Determine trimester
+        if week <= 12:
+            trimester = "First"
+        elif week <= 27:
+            trimester = "Second"
+        else:
+            trimester = "Third"
+        
+        # Aggregate all clinical tests from all milestone weeks
+        all_clinical_tests = []
+        milestone_weeks = [0, 8, 12, 16, 20, 24, 28, 32, 36, 40]
+        
+        for mweek in milestone_weeks:
+            data = PREGNANCY_MILESTONES_DATA.get(mweek, {})
+            tests = data.get("clinical_tests", [])
+            all_clinical_tests.extend(tests)
+        
+        # Get warning signs for current week
+        milestone_week = _find_closest_milestone_week(week)
+        current_data = PREGNANCY_MILESTONES_DATA.get(milestone_week, PREGNANCY_MILESTONES_DATA[20])
+        warning_signs = current_data.get("warning_signs", "")
+        
+        return {
+            "week": week,
+            "trimester": trimester,
+            "clinical_tests": all_clinical_tests,
+            "clinical_warning_signs": warning_signs
+        }
+    
+    except Exception as e:
+        print(f"[ERROR] pregnancy_clinical_timeline failed for user {user_id}, week {week}: {e}")
         return {"status": "error", "message": str(e), "user_id": user_id}
 
 
@@ -309,7 +359,6 @@ def postpartum_recovery(user_id: int) -> Dict[str, Any]:
                 recovery_metrics=recovery_metrics,
                 mental_health=mental_health,
                 activity_level=POSTPARTUM_ACTIVITIES.get(postpartum_week, "Consult doctor"),
-                sleep_hours=_estimate_sleep_hours(health_logs) if health_logs else 4.0,
                 postpartum_alerts=alerts,
                 next_follow_up=(delivery_date + timedelta(days=42)).isoformat()
             ).model_dump(exclude_none=False)
@@ -449,30 +498,42 @@ def _generate_postpartum_alerts(week: int, recovery: RecoveryMetrics, mental_hea
 
 def _calculate_recovery_metrics(logs: list, postpartum_week: int) -> RecoveryMetrics:
     """Calculate recovery metrics from health logs."""
-    if not logs:
-        return RecoveryMetrics(
-            physical_recovery_percent=50,
-            bleeding_level="light",
-            pelvic_floor_status="healing",
-            energy_level=3
-        )
-    
-    # Estimate recovery based on week and energy levels
+    # Estimate recovery based on week (20% baseline + 10% per week)
     recovery_percent = min(100, 20 + (postpartum_week * 10))
     
-    # Parse energy from logs
-    avg_energy = 5
+    # Calculate hormonal balance (improves over time)
+    # Week 0-2: 30%, Week 3-6: 50%, Week 7-12: 75%+
+    if postpartum_week < 3:
+        hormonal_balance = 30
+    elif postpartum_week < 7:
+        hormonal_balance = 50 + (postpartum_week - 3) * 3
+    else:
+        hormonal_balance = min(100, 75 + (postpartum_week - 7) * 3)
+    
+    # Parse energy from logs and convert to percentage
+    avg_energy_percent = 40  # Default for week 0
     if logs:
-        energy_mapping = {"Very Low": 1, "Low": 3, "Moderate": 5, "High": 7, "Very High": 9}
-        energies = [energy_mapping.get(log.get("energy_level"), 5) for log in logs if log.get("energy_level")]
+        energy_mapping = {"Very Low": 10, "Low": 30, "Moderate": 50, "High": 70, "Very High": 90}
+        energies = [energy_mapping.get(log.get("energy_level"), 50) for log in logs if log.get("energy_level")]
         if energies:
-            avg_energy = sum(energies) / len(energies)
+            avg_energy_percent = int(sum(energies) / len(energies))
+        else:
+            # Estimate based on postpartum week
+            avg_energy_percent = min(90, 40 + (postpartum_week * 5))
+    else:
+        # Default estimate by week
+        avg_energy_percent = min(90, 40 + (postpartum_week * 5))
+    
+    # Calculate sleep quality percentage (4.5 hours = 45%, 8 hours = 100%)
+    sleep_quality_percent = min(100, 45 + (postpartum_week * 5))
     
     return RecoveryMetrics(
         physical_recovery_percent=int(recovery_percent),
         bleeding_level="light" if postpartum_week > 2 else "moderate",
         pelvic_floor_status="healing" if postpartum_week < 6 else "recovered",
-        energy_level=int(avg_energy)
+        hormonal_balance_percent=int(hormonal_balance),
+        energy_level_percent=avg_energy_percent,
+        sleep_quality_percent=int(sleep_quality_percent)
     )
 
 
@@ -508,14 +569,4 @@ def _calculate_mental_health(logs: list) -> MentalHealth:
         mood_trend=trend,
         supportive_resources=["Postpartum Support Group", "Mental Health Helpline", "Partner Support"]
     )
-
-
-def _estimate_sleep_hours(logs: list) -> float:
-    """Estimate sleep hours from health logs (would be more accurate with dedicated field)."""
-    if not logs:
-        return 4.0
-    
-    # Default estimate for postpartum sleep
-    return 4.5
-
 

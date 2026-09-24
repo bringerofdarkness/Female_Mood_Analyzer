@@ -33,52 +33,23 @@ class PregnancySummary(BaseModel):
 # PREGNANCY MILESTONES MODELS
 # ============================================================================
 
-class BabyDevelopment(BaseModel):
-    """Baby development information for current week."""
-    week: int = Field(..., ge=0, le=40)
-    size: str = Field(..., description="Baby size comparison (e.g., 'size of a lemon')")
-    weight: str = Field(..., description="Baby weight (e.g., '1.3 lbs')")
-    features: List[str] = Field(..., description="Key development milestones")
-
-
-class BodyChanges(BaseModel):
-    """Expected body changes during pregnancy."""
-    week: int = Field(..., ge=0, le=40)
-    physical_changes: List[str] = Field(..., description="Expected body changes")
-    common_symptoms: List[str] = Field(..., description="Common symptoms during this week")
-
-
-class NutritionFocus(BaseModel):
-    """Nutrition recommendations for pregnancy stage."""
-    macro_nutrients: Dict[str, str] = Field(..., description="Key nutrients and daily intake")
-    food_groups: List[str] = Field(..., description="Important food groups to focus on")
-    avoid: List[str] = Field(..., description="Foods/substances to avoid during pregnancy")
-
-
-class SafeExercise(BaseModel):
-    """Exercise recommendations for pregnancy."""
-    recommended: List[str] = Field(..., description="Safe exercises for this trimester")
-    avoid: List[str] = Field(..., description="Exercises to avoid")
-    intensity_level: str = Field(..., description="low, moderate, high")
-
-
-class ClinicalMonitoring(BaseModel):
-    """Clinical monitoring and tests for this week."""
-    week: int = Field(..., ge=0, le=40)
-    screenings: List[str] = Field(..., description="Recommended screenings")
-    tests: List[str] = Field(..., description="Recommended tests")
-    vital_checks: List[str] = Field(..., description="Vital sign checks")
+class ClinicalTest(BaseModel):
+    """Clinical test/screening with scheduled date."""
+    name: str = Field(..., description="Test name (e.g., 'Glucose Tolerance Test')")
+    week: str = Field(..., description="Week notation (e.g., 'W24')")
+    date: str = Field(..., description="Scheduled date (e.g., 'Nov 8 (Today)')")
 
 
 class PregnancyMilestones(BaseModel):
-    """Complete pregnancy milestones for a specific week."""
-    week: int = Field(..., ge=0, le=40)
+    """Complete pregnancy milestones for a specific week - UI-aligned format."""
+    week: int = Field(..., ge=0, le=40, description="Pregnancy week 0-40")
     trimester: str = Field(..., description="First, Second, or Third")
-    baby_development: BabyDevelopment
-    your_body: BodyChanges
-    nutrition_focus: NutritionFocus
-    safe_exercises: SafeExercise
-    clinical_monitoring: ClinicalMonitoring
+    baby_development: str = Field(..., description="Narrative description of baby development")
+    your_body: str = Field(..., description="Narrative description of body changes")
+    nutrition_focus: str = Field(..., description="Narrative nutrition recommendations")
+    safe_exercises: str = Field(..., description="Narrative safe exercise recommendations")
+    clinical_monitoring: List[ClinicalTest] = Field(..., description="List of scheduled clinical tests with dates")
+    clinical_warning_signs: str = Field(..., description="Red flag warning signs to watch for")
 
 
 # ============================================================================
@@ -87,11 +58,13 @@ class PregnancyMilestones(BaseModel):
 
 class RecoveryMetrics(BaseModel):
     """Physical recovery metrics for postpartum."""
-    physical_recovery_percent: int = Field(..., ge=0, le=100, description="Overall physical recovery percentage")
+    physical_recovery_percent: int = Field(..., ge=0, le=100, description="Overall physical recovery percentage (0-100%)")
     bleeding_level: str = Field(..., description="heavy, moderate, light, minimal")
     incision_healing: Optional[str] = Field(None, description="good, fair, needs_attention (if C-section)")
     pelvic_floor_status: str = Field(..., description="healing, recovered, needs_attention")
-    energy_level: int = Field(..., ge=0, le=10, description="Energy level 0-10")
+    hormonal_balance_percent: int = Field(..., ge=0, le=100, description="Hormonal balance recovery percentage (0-100%)")
+    energy_level_percent: int = Field(..., ge=0, le=100, description="Energy level percentage (0-100%)")
+    sleep_quality_percent: int = Field(..., ge=0, le=100, description="Sleep quality percentage (0-100%)")
 
 
 class MentalHealth(BaseModel):
@@ -118,7 +91,6 @@ class PostpartumRecovery(BaseModel):
     recovery_metrics: RecoveryMetrics
     mental_health: MentalHealth
     activity_level: str = Field(..., description="minimal, light, moderate, active")
-    sleep_hours: float = Field(..., ge=0, le=24, description="Average sleep hours per night")
     postpartum_alerts: List[PostpartumAlert] = Field(default_factory=list)
     next_follow_up: Optional[str] = Field(None, description="Date of next postpartum checkup")
 

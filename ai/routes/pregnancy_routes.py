@@ -4,6 +4,7 @@ from fastapi import APIRouter, Query
 from ai.services.pregnancy_service import (
     pregnancy_summary,
     pregnancy_milestones,
+    pregnancy_clinical_timeline,
     postpartum_recovery,
     support_groups
 )
@@ -99,6 +100,70 @@ async def get_pregnancy_milestones(
     ```
     """
     return pregnancy_milestones(user_id, week)
+
+
+@router.get("/pregnancy/clinical-timeline")
+async def get_pregnancy_clinical_timeline(
+    user_id: int = Query(..., ge=1, description="User ID"),
+    week: int = Query(None, ge=0, le=40, description="Current pregnancy week (0-40, optional)")
+):
+    """
+    **Clinical Tests Timeline - Figma UI View**
+    
+    Get all clinical tests scheduled across entire pregnancy with dates.
+    Perfect for displaying a timeline view in UI showing all upcoming and past tests.
+    
+    **Parameters:**
+    - `user_id` (int, required): User identifier
+    - `week` (int, optional): Current pregnancy week. If omitted, uses current week.
+    
+    **Response includes:**
+    - Current week and trimester
+    - All clinical tests from all weeks with dates
+    - Warning signs for current week
+    
+    **Example:**
+    ```
+    GET /api/v1/pregnancy/clinical-timeline?user_id=2&week=24
+    ```
+    
+    **Response (200 OK):**
+    ```json
+    {
+      "week": 24,
+      "trimester": "Second",
+      "clinical_tests": [
+        {
+          "name": "Anatomy Scan",
+          "week": "W20",
+          "date": "Oct 2"
+        },
+        {
+          "name": "Glucose Tolerance Test",
+          "week": "W24",
+          "date": "Nov 8 (Today)"
+        },
+        {
+          "name": "Anti-D Injection",
+          "week": "W28",
+          "date": "Dec 6"
+        },
+        {
+          "name": "Growth Scan",
+          "week": "W32",
+          "date": "Jan 3"
+        },
+        {
+          "name": "GBS Swab + Birth Plan",
+          "week": "W36",
+          "date": "Jan 31"
+        }
+      ],
+      "clinical_warning_signs": "Seek immediate care for..."
+    }
+    ```
+    """
+    return pregnancy_clinical_timeline(user_id, week)
 
 
 @router.get("/postpartum/recovery")
