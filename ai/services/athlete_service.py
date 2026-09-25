@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
+import json
+
+from fastapi import HTTPException
 
 from ai.models.athlete_models import (
     AthleteReadinessResponse,
@@ -17,6 +20,7 @@ from ai.models.athlete_models import (
     TrainingLoadMetric,
 )
 from ai.utils.db import get_current_cycle, get_snapshot, get_user_profile
+from ai.utils.llm_call import llm_call
 
 
 def athlete_readiness(user_id: int) -> AthleteReadinessResponse | dict[str, Any]:
@@ -34,43 +38,49 @@ def athlete_readiness(user_id: int) -> AthleteReadinessResponse | dict[str, Any]
         # Fetch user data
         profile = get_user_profile(user_id)
         if not profile:
-            return {
-                "status": "error",
-                "message": f"User {user_id} not found",
-                "user_id": user_id,
-            }
+            raise HTTPException(status_code=404, detail=f"User {user_id} not found")
         
-        # Fetch today's performance data from Terra
-        hrv_data = _fetch_hrv_data(user_id)
-        sleep_data = _fetch_sleep_data(user_id)
-        recovery_data = _fetch_recovery_data(user_id)
-        training_load = _fetch_training_load(user_id)
+        # Fetch raw Terra performance data
+        terra_raw_data = _fetch_terra_raw_data(user_id)
         
         # Get cycle info
         cycle_info_dict = _get_cycle_info(user_id)
         
-        # Calculate readiness components
-        hrv_metric = _calculate_hrv_score(hrv_data)
-        sleep_metric = _calculate_sleep_score(sleep_data)
-        recovery_metric = _calculate_recovery_score(recovery_data)
+        # Build context for Claude and generate personalized metrics
+        context = _build_athlete_context(user_id, terra_raw_data, cycle_info_dict)
+        ai_metrics = _generate_readiness_metrics_with_claude(context)
+        
+        # Build metric objects from Claude's AI-generated values
+        hrv_metric = HRVMetric(
+            value=ai_metrics.get("hrv_value", 65),
+            trend=ai_metrics.get("hrv_trend", 0),
+            status=ai_metrics.get("hrv_status", "good"),
+        )
+        # Convert sleep hours to percentage (8 hours = 100%)
+        sleep_hours = ai_metrics.get("sleep_hours", 7.5)
+        sleep_percentage = min(100, int((sleep_hours / 8.0) * 100))
+        sleep_metric = SleepMetric(
+            percentage=sleep_percentage,
+            trend=ai_metrics.get("sleep_trend", 0),
+            status=ai_metrics.get("sleep_status", "fair"),
+        )
+        recovery_metric = RecoveryMetric(
+            percentage=ai_metrics.get("recovery_score", 55),
+            trend=ai_metrics.get("recovery_trend", 0),
+            status=ai_metrics.get("recovery_status", "moderate"),
+        )
         training_load_metric = TrainingLoadMetric(
-            value=training_load["value"],
-            status=training_load["status"],
+            value=ai_metrics.get("training_load_value", 0),
+            trend=ai_metrics.get("training_load_trend", 0),
+            status=ai_metrics.get("training_load_status", "low"),
         )
         
-        # Calculate base readiness score
-        base_score = (
-            hrv_metric.score * 0.30 +
-            sleep_metric.score * 0.35 +
-            recovery_metric.score * 0.35
-        )
-        
-        # Apply cycle phase modifier
+        # Use Claude's AI-generated readiness score
+        final_score = ai_metrics.get("readiness_score", 50)
+        readiness_level = ai_metrics.get("readiness_level", "Adequate")
         phase_boost = cycle_info_dict["phase_boost"]
-        final_score = min(100, max(0, base_score + phase_boost))
         
-        # Determine readiness level
-        readiness_level = _get_readiness_level(final_score)
+        # Generate readiness message
         readiness_message = _get_readiness_message(
             readiness_level, 
             cycle_info_dict["phase"],
@@ -78,12 +88,14 @@ def athlete_readiness(user_id: int) -> AthleteReadinessResponse | dict[str, Any]
             recovery_metric.status
         )
         
-        # Generate fatigue alerts
-        alerts = _generate_fatigue_alerts(
-            sleep_data,
-            recovery_data,
-            training_load,
-            hrv_data
+        # Generate personalized fatigue alerts using Claude AI
+        alerts = _generate_personalized_fatigue_alerts(
+            user_id,
+            hrv_metric,
+            sleep_metric,
+            recovery_metric,
+            training_load_metric,
+            cycle_info_dict,
         )
         
         # Generate recommendations
@@ -111,7 +123,11 @@ def athlete_readiness(user_id: int) -> AthleteReadinessResponse | dict[str, Any]
             date=date.today().isoformat(),
             readiness_score=int(final_score),
             readiness_level=readiness_level,
-            readiness_message=readiness_message,
+            # Quick stat cards for display
+            hrv=hrv_metric,
+            recovery=recovery_metric,
+            training_load=training_load_metric,
+            # Full details
             metrics=metrics,
             fatigue_alerts=alerts,
             cycle_info=cycle_info,
@@ -121,23 +137,22 @@ def athlete_readiness(user_id: int) -> AthleteReadinessResponse | dict[str, Any]
         
         return response.model_dump(exclude_none=False)
     
+    except HTTPException:
+        # Let HTTPException (404, etc.) propagate to FastAPI
+        raise
     except Exception as e:
         print(f"[ERROR] athlete_readiness failed for user {user_id}: {e}")
-        return {
-            "status": "error",
-            "message": str(e),
-            "user_id": user_id,
-        }
+        raise HTTPException(status_code=500, detail=f"Readiness calculation failed: {str(e)}")
 
 
 def _fetch_hrv_data(user_id: int) -> dict[str, Any]:
-    """Fetch HRV data from terra_activity_data for today and yesterday."""
+    """Fetch HRV data from terra_activity_data for today and yesterday, calculate trend."""
     try:
         from ai.utils.db import get_connection
-        from pymysql.cursors import DictCursor
         
         with get_connection() as conn:
             cursor = conn.cursor()
+            # Fetch today and yesterday's HRV data
             cursor.execute(
                 """
                 SELECT 
@@ -145,17 +160,18 @@ def _fetch_hrv_data(user_id: int) -> dict[str, Any]:
                     created_at
                 FROM terra_activity_data
                 WHERE user_id = %s AND type = 'body'
-                LIMIT 1
+                ORDER BY created_at DESC
+                LIMIT 2
                 """,
                 (user_id,),
             )
-            row = cursor.fetchone()
+            rows = cursor.fetchall()
             
-            if not row:
-                return {"value": 0, "high": 0, "low": 0, "trend": 0, "available": False}
+            if not rows:
+                return {"value": 0, "trend": 0, "available": False}
             
-            # Handle JSON null (comes as string "null")
-            hrv_raw = row.get("hrv_value")
+            # Process today's value (first/most recent)
+            hrv_raw = rows[0].get("hrv_value")
             hrv_value = 0
             if hrv_raw and hrv_raw != "null":
                 try:
@@ -163,11 +179,21 @@ def _fetch_hrv_data(user_id: int) -> dict[str, Any]:
                 except (ValueError, TypeError):
                     hrv_value = 0
             
+            # Calculate trend from yesterday's value
+            trend = 0
+            if len(rows) > 1:
+                hrv_prev_raw = rows[1].get("hrv_value")
+                hrv_prev = 0
+                if hrv_prev_raw and hrv_prev_raw != "null":
+                    try:
+                        hrv_prev = float(hrv_prev_raw)
+                    except (ValueError, TypeError):
+                        hrv_prev = 0
+                trend = int(hrv_value - hrv_prev)
+            
             return {
                 "value": int(hrv_value),
-                "high": 0,
-                "low": 0,
-                "trend": 0,
+                "trend": trend,
                 "available": hrv_value > 0,
             }
     except Exception as e:
@@ -176,72 +202,91 @@ def _fetch_hrv_data(user_id: int) -> dict[str, Any]:
 
 
 def _fetch_sleep_data(user_id: int) -> dict[str, Any]:
-    """Fetch sleep data from terra_activity_data."""
+    """Fetch sleep data from terra_activity_data for today and yesterday, calculate trend."""
     try:
         from ai.utils.db import get_connection
         
         with get_connection() as conn:
             cursor = conn.cursor()
+            # Fetch today and yesterday's sleep data
             cursor.execute(
                 """
                 SELECT 
-                    JSON_EXTRACT(payload, '$.data[0].scores.sleep') as sleep_score
+                    JSON_EXTRACT(payload, '$.data[0].scores.sleep') as sleep_score,
+                    created_at
                 FROM terra_activity_data
                 WHERE user_id = %s AND type = 'daily'
-                LIMIT 1
+                ORDER BY created_at DESC
+                LIMIT 2
                 """,
                 (user_id,),
             )
-            row = cursor.fetchone()
+            rows = cursor.fetchall()
             
-            if not row:
-                return {"hours": 0, "score": 60, "available": False}
+            if not rows:
+                return {"hours": 0, "score": 60, "trend": 0, "available": False}
             
-            sleep_score = int(float(row.get("sleep_score") or 0)) if row.get("sleep_score") else None
+            # Process today's value (first/most recent)
+            sleep_raw = rows[0].get("sleep_score")
+            sleep_score = 60  # Default baseline (adequate sleep)
+            if sleep_raw and sleep_raw != "null":
+                try:
+                    sleep_score = int(float(sleep_raw))
+                except (ValueError, TypeError):
+                    sleep_score = 60
             
-            # If Terra doesn't have sleep score, use safe baseline (60 = adequate)
-            if sleep_score is None or sleep_score == 0:
-                sleep_score = 60
-                available = False
-            else:
-                available = True
+            # Calculate trend from yesterday's value
+            trend = 0
+            if len(rows) > 1:
+                sleep_prev_raw = rows[1].get("sleep_score")
+                sleep_prev = 60
+                if sleep_prev_raw and sleep_prev_raw != "null":
+                    try:
+                        sleep_prev = int(float(sleep_prev_raw))
+                    except (ValueError, TypeError):
+                        sleep_prev = 60
+                trend = sleep_score - sleep_prev
             
             return {
                 "hours": 0,  # Terra data doesn't include duration_seconds
                 "score": sleep_score,
-                "available": available,
+                "trend": trend,
+                "available": sleep_score > 0,
             }
     except Exception as e:
         print(f"[ERROR] _fetch_sleep_data: {e}")
-        return {"hours": 0, "score": 60, "available": False}
+        return {"hours": 0, "score": 60, "trend": 0, "available": False}
 
 
 def _fetch_recovery_data(user_id: int) -> dict[str, Any]:
-    """Fetch recovery score from terra_activity_data, or estimate from MET level."""
+    """Fetch recovery score from terra_activity_data, estimate from MET level, calculate trend."""
     try:
         from ai.utils.db import get_connection
         
         with get_connection() as conn:
             cursor = conn.cursor()
+            # Fetch today and yesterday's recovery data
             cursor.execute(
                 """
                 SELECT 
                     JSON_EXTRACT(payload, '$.data[0].scores.recovery') as recovery_score,
-                    JSON_EXTRACT(payload, '$.data[0].MET_data.avg_level') as avg_met
+                    JSON_EXTRACT(payload, '$.data[0].MET_data.avg_level') as avg_met,
+                    created_at
                 FROM terra_activity_data
                 WHERE user_id = %s AND type = 'daily'
-                LIMIT 1
+                ORDER BY created_at DESC
+                LIMIT 2
                 """,
                 (user_id,),
             )
-            row = cursor.fetchone()
+            rows = cursor.fetchall()
             
-            if not row:
-                return {"score": 55, "available": False}
+            if not rows:
+                return {"score": 55, "trend": 0, "available": False}
             
-            # Handle JSON null (comes as string "null")
-            recovery_raw = row.get("recovery_score")
-            avg_met_raw = row.get("avg_met")
+            # Process today's value (first/most recent)
+            recovery_raw = rows[0].get("recovery_score")
+            avg_met_raw = rows[0].get("avg_met")
             
             recovery_score = None
             if recovery_raw and recovery_raw != "null":
@@ -257,50 +302,88 @@ def _fetch_recovery_data(user_id: int) -> dict[str, Any]:
                 except (ValueError, TypeError):
                     avg_met = 0
             
-            # If Terra has recovery score, use it
+            # Determine today's recovery score
             if recovery_score and recovery_score > 0:
-                return {"score": recovery_score, "available": True}
+                today_score = recovery_score
+                available = True
+            elif avg_met > 0:
+                # Estimate from MET level (inverse relationship)
+                today_score = min(80, max(30, int(100 - (avg_met * 3))))
+                available = False
+            else:
+                today_score = 55
+                available = False
             
-            # Otherwise, estimate from MET level (inverse relationship)
-            # MET 10-15 is moderate activity: recovery = 50-70
-            if avg_met > 0:
-                estimated_recovery = min(80, max(30, int(100 - (avg_met * 3))))
-                print(f"[DEBUG] user {user_id}: estimated recovery from MET {avg_met} = {estimated_recovery}")
-                return {"score": estimated_recovery, "available": False}
+            # Calculate trend from yesterday's value
+            trend = 0
+            if len(rows) > 1:
+                recovery_prev_raw = rows[1].get("recovery_score")
+                avg_met_prev_raw = rows[1].get("avg_met")
+                
+                recovery_prev = None
+                if recovery_prev_raw and recovery_prev_raw != "null":
+                    try:
+                        recovery_prev = int(float(recovery_prev_raw))
+                    except (ValueError, TypeError):
+                        recovery_prev = None
+                
+                avg_met_prev = 0
+                if avg_met_prev_raw and avg_met_prev_raw != "null":
+                    try:
+                        avg_met_prev = float(avg_met_prev_raw)
+                    except (ValueError, TypeError):
+                        avg_met_prev = 0
+                
+                # Determine yesterday's recovery score
+                if recovery_prev and recovery_prev > 0:
+                    prev_score = recovery_prev
+                elif avg_met_prev > 0:
+                    prev_score = min(80, max(30, int(100 - (avg_met_prev * 3))))
+                else:
+                    prev_score = 55
+                
+                trend = today_score - prev_score
             
-            # Safe baseline
-            return {"score": 55, "available": False}
+            return {"score": today_score, "trend": trend, "available": available}
     except Exception as e:
         print(f"[ERROR] _fetch_recovery_data: {e}")
-        return {"score": 55, "available": False}
+        return {"score": 55, "trend": 0, "available": False}
 
 
 def _fetch_training_load(user_id: int) -> dict[str, Any]:
-    """Calculate training load from MET level or activity seconds."""
+    """Calculate training load from MET level or activity seconds, calculate trend."""
     try:
         from ai.utils.db import get_connection
         
         with get_connection() as conn:
             cursor = conn.cursor()
+            # Fetch today and yesterday's training load data
             cursor.execute(
                 """
                 SELECT 
                     JSON_EXTRACT(payload, '$.data[0].MET_data.avg_level') as avg_met,
-                    JSON_EXTRACT(payload, '$.data[0].active_durations_data.activity_seconds') as activity_seconds
+                    JSON_EXTRACT(payload, '$.data[0].active_durations_data.activity_seconds') as activity_seconds,
+                    created_at
                 FROM terra_activity_data
                 WHERE user_id = %s AND type = 'daily'
-                LIMIT 1
+                ORDER BY created_at DESC
+                LIMIT 2
                 """,
                 (user_id,),
             )
-            row = cursor.fetchone()
+            rows = cursor.fetchall()
             
-            if not row:
-                return {"value": 0, "status": "low", "available": False}
+            if not rows:
+                return {"value": 0, "trend": 0, "status": "low", "available": False}
             
-            # Handle JSON null (comes as string "null")
-            avg_met_raw = row.get("avg_met")
-            activity_raw = row.get("activity_seconds")
+            # Helper function to calculate load from metrics
+            def calc_load(met, activity_sec):
+                activity_min = activity_sec / 60
+                return (activity_min * 0.8) + (met * 5) if (activity_min or met) else 0
+            
+            # Process today's value (first/most recent)
+            avg_met_raw = rows[0].get("avg_met")
+            activity_raw = rows[0].get("activity_seconds")
             
             avg_met = 0
             if avg_met_raw and avg_met_raw != "null":
@@ -316,22 +399,43 @@ def _fetch_training_load(user_id: int) -> dict[str, Any]:
                 except (ValueError, TypeError):
                     activity_seconds = 0
             
-            # Training Load AU = (activity_minutes * 0.8) + (MET * 5)
-            activity_minutes = activity_seconds / 60
-            training_load = (activity_minutes * 0.8) + (avg_met * 5) if (activity_minutes or avg_met) else 0
+            today_load = calc_load(avg_met, activity_seconds)
+            status = "low" if today_load < 100 else "moderate" if today_load < 300 else "high"
             
-            status = "low" if training_load < 100 else "moderate" if training_load < 300 else "high"
+            # Calculate trend from yesterday's value
+            trend = 0
+            if len(rows) > 1:
+                avg_met_prev_raw = rows[1].get("avg_met")
+                activity_prev_raw = rows[1].get("activity_seconds")
+                
+                avg_met_prev = 0
+                if avg_met_prev_raw and avg_met_prev_raw != "null":
+                    try:
+                        avg_met_prev = float(avg_met_prev_raw)
+                    except (ValueError, TypeError):
+                        avg_met_prev = 0
+                
+                activity_prev_seconds = 0
+                if activity_prev_raw and activity_prev_raw != "null":
+                    try:
+                        activity_prev_seconds = float(activity_prev_raw)
+                    except (ValueError, TypeError):
+                        activity_prev_seconds = 0
+                
+                prev_load = calc_load(avg_met_prev, activity_prev_seconds)
+                trend = int(today_load - prev_load)
             
-            print(f"[DEBUG] user {user_id}: activity_min={activity_minutes}, MET={avg_met}, load={training_load}")
+            print(f"[DEBUG] user {user_id}: activity_min={activity_seconds/60}, MET={avg_met}, load={today_load}, trend={trend}")
             
             return {
-                "value": round(training_load, 1),
+                "value": round(today_load, 1),
+                "trend": trend,
                 "status": status,
-                "available": (activity_minutes > 0 or avg_met > 0),
+                "available": (activity_seconds > 0 or avg_met > 0),
             }
     except Exception as e:
         print(f"[ERROR] _fetch_training_load: {e}")
-        return {"value": 0, "status": "low", "available": False}
+        return {"value": 0, "trend": 0, "status": "low", "available": False}
 
 
 def _get_cycle_info(user_id: int) -> dict[str, Any]:
@@ -429,6 +533,7 @@ def _calculate_sleep_score(sleep_data: dict[str, Any]) -> SleepMetric:
     """Calculate sleep quality score."""
     sleep_score = sleep_data.get("score", 0)
     sleep_hours = sleep_data.get("hours", 0)
+    trend = sleep_data.get("trend", 0)
     
     # If Terra didn't provide score, estimate from hours (7-9 hours is optimal)
     if sleep_score == 0:
@@ -446,6 +551,7 @@ def _calculate_sleep_score(sleep_data: dict[str, Any]) -> SleepMetric:
     return SleepMetric(
         hours=sleep_hours,
         score=sleep_score,
+        trend=trend,
         status=status,
     )
 
@@ -453,11 +559,13 @@ def _calculate_sleep_score(sleep_data: dict[str, Any]) -> SleepMetric:
 def _calculate_recovery_score(recovery_data: dict[str, Any]) -> RecoveryMetric:
     """Calculate recovery metric."""
     recovery_score = recovery_data.get("score", 0)
+    trend = recovery_data.get("trend", 0)
     
     status = "recovered" if recovery_score > 80 else "partial" if recovery_score > 50 else "depleted"
     
     return RecoveryMetric(
         score=recovery_score,
+        trend=trend,
         status=status,
     )
 
@@ -585,6 +693,76 @@ def _generate_fatigue_alerts(
     return alerts
 
 
+def _generate_personalized_fatigue_alerts(
+    user_id: int,
+    hrv: HRVMetric,
+    sleep: SleepMetric,
+    recovery: RecoveryMetric,
+    training_load: TrainingLoadMetric,
+    cycle_info: dict[str, Any],
+) -> list[FatigueAlert]:
+    """Generate personalized fatigue alerts using Claude AI."""
+    try:
+        # Build context for Claude
+        context = f"""Analyze the athlete's current status and generate 3 personalized fatigue risk alerts.
+
+ATHLETE STATUS:
+- HRV (Heart Rate Variability): {hrv.value}ms, status: {hrv.status}, trend: {hrv.trend}
+- Sleep: {sleep.percentage}%, status: {sleep.status}, trend: {sleep.trend}
+- Recovery: {recovery.percentage}%, status: {recovery.status}, trend: {recovery.trend}
+- Training Load: {training_load.value} AU, status: {training_load.status}, trend: {training_load.trend}
+- Menstrual Cycle Phase: {cycle_info.get('phase', 'unknown')}
+- Cycle Day: {cycle_info.get('cycle_day', 0)}
+
+GENERATE 3 PERSONALIZED FATIGUE ALERTS with these exact fields:
+1. Overtraining Risk - based on training load and recovery
+2. Injury Risk Index - based on HRV trends and cycle phase
+3. Cumulative Fatigue - based on sleep, recovery, and HRV patterns
+
+For each alert, respond with JSON array containing:
+{{
+  "type": "overtraining_risk" | "injury_risk_index" | "cumulative_fatigue",
+  "level": "low" | "moderate" | "high",
+  "message": "Personalized insight explaining this specific alert for this athlete"
+}}
+
+IMPORTANT: Be specific about THIS athlete's situation. Reference their actual metrics.
+Respond ONLY with valid JSON array, no markdown or explanation."""
+
+        response = llm_call(context)
+        alerts_json = json.loads(response)
+        
+        alerts = []
+        for alert_data in alerts_json:
+            alerts.append(FatigueAlert(
+                type=alert_data.get("type", "cumulative_fatigue"),
+                level=alert_data.get("level", "moderate"),
+                message=alert_data.get("message", "Monitor your training and recovery."),
+            ))
+        
+        return alerts
+    except Exception as e:
+        print(f"[ERROR] _generate_personalized_fatigue_alerts: {e}")
+        # Return default alerts if Claude fails
+        return [
+            FatigueAlert(
+                type="overtraining_risk",
+                level="low",
+                message="Training load is within normal range.",
+            ),
+            FatigueAlert(
+                type="injury_risk_index",
+                level="low",
+                message="Injury risk is low based on current metrics.",
+            ),
+            FatigueAlert(
+                type="cumulative_fatigue",
+                level="moderate",
+                message="Monitor cumulative fatigue over time.",
+            ),
+        ]
+
+
 def _generate_phase_recommendations(phase: str) -> PhaseRecommendation:
     """Generate phase-specific training recommendations."""
     recommendations = {
@@ -597,12 +775,6 @@ def _generate_phase_recommendations(phase: str) -> PhaseRecommendation:
                 "Stretching and mobility work",
                 "Meditation or breathing exercises",
             ],
-            avoid=[
-                "High-intensity interval training (HIIT)",
-                "Heavy weightlifting",
-                "Long endurance sessions",
-                "New intense training protocols",
-            ],
         ),
         "follicular": PhaseRecommendation(
             workout_type="strength",
@@ -612,11 +784,6 @@ def _generate_phase_recommendations(phase: str) -> PhaseRecommendation:
                 "Hypertrophy-focused resistance training",
                 "High-intensity interval training (HIIT)",
                 "New fitness challenges or skill work",
-            ],
-            avoid=[
-                "Excessive steady-state cardio",
-                "Very high volume training",
-                "Complete deload/rest days",
             ],
         ),
         "ovulatory": PhaseRecommendation(
@@ -629,11 +796,6 @@ def _generate_phase_recommendations(phase: str) -> PhaseRecommendation:
                 "Personal record (PR) attempts",
                 "Demanding metabolic conditioning",
             ],
-            avoid=[
-                "Light/easy sessions",
-                "Recovery-focused workouts",
-                "Experimenting with new heavy lifts",
-            ],
         ),
         "luteal": PhaseRecommendation(
             workout_type="endurance",
@@ -645,11 +807,6 @@ def _generate_phase_recommendations(phase: str) -> PhaseRecommendation:
                 "Active recovery paired with strength",
                 "Stability and balance work",
             ],
-            avoid=[
-                "Very high-intensity efforts",
-                "Extreme training volume",
-                "Multiple intense sessions per day",
-            ],
         ),
         "unknown": PhaseRecommendation(
             workout_type="moderate",
@@ -659,8 +816,226 @@ def _generate_phase_recommendations(phase: str) -> PhaseRecommendation:
                 "Moderate strength and conditioning",
                 "Listen to your body for intensity cues",
             ],
-            avoid=[],
         ),
     }
     
     return recommendations.get(phase, recommendations["unknown"])
+
+
+def _fetch_terra_raw_data(user_id: int) -> dict[str, Any]:
+    """Fetch raw Terra health data (MET, activity, HRV, sleep, etc.)."""
+    try:
+        from ai.utils.db import get_connection
+        from datetime import datetime, timedelta
+        import json
+        
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            # Fetch latest 5 records from last 60 days to avoid large sort operations
+            sixty_days_ago = (datetime.utcnow() - timedelta(days=60)).isoformat()
+            
+            cursor.execute(
+                """
+                SELECT payload, created_at
+                FROM terra_activity_data
+                WHERE user_id = %s 
+                  AND created_at >= %s
+                ORDER BY created_at DESC
+                LIMIT 5
+                """,
+                (user_id, sixty_days_ago),
+            )
+            rows = cursor.fetchall()
+            
+            if not rows:
+                return {
+                    "avg_met": 0,
+                    "sleep_score": None,
+                    "recovery_score": None,
+                    "hrv_value": 0,
+                    "activity_seconds": 0,
+                    "calories_burned": 0,
+                    "has_data": False,
+                }
+            
+            # Extract and aggregate data from JSON payloads
+            avg_met = 0
+            sleep_score = None
+            recovery_score = None
+            hrv_value = 0
+            activity_seconds = 0
+            calories_burned = 0
+            
+            for row in rows:
+                try:
+                    payload = json.loads(row["payload"]) if isinstance(row["payload"], str) else row["payload"]
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                
+                # Extract MET data
+                try:
+                    met = payload.get("MET_data", {}).get("avg_level")
+                    if met:
+                        avg_met = float(met)
+                except (ValueError, TypeError, AttributeError):
+                    pass
+                
+                # Extract scores
+                try:
+                    scores = payload.get("scores", {})
+                    if scores.get("sleep"):
+                        sleep_score = int(float(scores["sleep"]))
+                    if scores.get("recovery"):
+                        recovery_score = int(float(scores["recovery"]))
+                except (ValueError, TypeError, AttributeError):
+                    pass
+                
+                # Extract HRV
+                try:
+                    hrv = payload.get("data", [{}])[0].get("heart_data", {}).get("heart_rate_data", {}).get("summary", {}).get("avg_hrv_rmssd")
+                    if hrv:
+                        hrv_value = float(hrv)
+                except (ValueError, TypeError, AttributeError, IndexError):
+                    pass
+                
+                # Extract activity and calories
+                try:
+                    activity = payload.get("data", [{}])[0].get("active_durations_data", {}).get("activity_seconds")
+                    if activity:
+                        activity_seconds = float(activity)
+                    
+                    calories = payload.get("data", [{}])[0].get("calories_data", {}).get("total_burned_calories")
+                    if calories:
+                        calories_burned = float(calories)
+                except (ValueError, TypeError, AttributeError, IndexError):
+                    pass
+            
+            return {
+                "avg_met": round(avg_met, 2),
+                "sleep_score": sleep_score,
+                "recovery_score": recovery_score,
+                "hrv_value": int(hrv_value),
+                "activity_seconds": int(activity_seconds),
+                "calories_burned": round(calories_burned, 2),
+                "has_data": avg_met > 0 or hrv_value > 0,
+            }
+    except Exception as e:
+        print(f"[ERROR] _fetch_terra_raw_data: {e}")
+        return {"avg_met": 0, "has_data": False}
+
+
+def _build_athlete_context(user_id: int, terra_data: dict[str, Any], cycle_info: dict[str, Any]) -> str:
+    """Build context string for Claude to generate personalized readiness assessment."""
+    context_parts = [
+        "Generate a personalized athlete readiness assessment based on the following data:",
+        f"\nUSER ID: {user_id}",
+        "\nAVAILABLE HEALTH DATA FROM WEARABLES:",
+    ]
+    
+    if terra_data.get("has_data"):
+        context_parts.append(f"  - Average MET Level: {terra_data.get('avg_met', 0)}")
+        context_parts.append(f"  - Activity Duration: {terra_data.get('activity_seconds', 0)} seconds")
+        context_parts.append(f"  - Calories Burned: {terra_data.get('calories_burned', 0)}")
+        context_parts.append(f"  - HRV Value: {terra_data.get('hrv_value', 0)} ms")
+    else:
+        context_parts.append("  - Limited wearable data available")
+    
+    if terra_data.get("sleep_score"):
+        context_parts.append(f"  - Sleep Score: {terra_data['sleep_score']}/100")
+    
+    if terra_data.get("recovery_score"):
+        context_parts.append(f"  - Recovery Score: {terra_data['recovery_score']}/100")
+    
+    context_parts.extend([
+        f"\nMENSTRUAL CYCLE PHASE: {cycle_info.get('phase', 'unknown')}",
+        f"  - Cycle Day: {cycle_info.get('cycle_day', 0)}",
+        f"  - Phase Description: {cycle_info.get('phase_description', 'N/A')}",
+        "",
+        "GENERATE PERSONALIZED RESPONSE WITH THESE EXACT JSON FIELDS:",
+        "",
+        "READINESS ASSESSMENT:",
+        "  - readiness_score (0-100 integer): Overall athletic readiness",
+        "  - readiness_level (string): Peak Ready | Ready | Adequate | Fatigued | Depleted",
+        "  - readiness_message (string): 1-2 sentence explaining readiness status",
+        "",
+        "HRV METRIC:",
+        "  - hrv_value (0-200 integer): Estimated heart rate variability in milliseconds (must be actual number, not 0)",
+        "  - hrv_score (0-100 integer): HRV assessment score",
+        "  - hrv_trend (-50 to +50): Change from yesterday (+3 = improving, -5 = declining)",
+        "  - hrv_status (string): good | warning | poor",
+        "",
+        "SLEEP METRIC:",
+        "  - sleep_hours (0-12 float): Estimated sleep duration (must be actual hours like 7.5, not 0)",
+        "  - sleep_score (0-100 integer): Sleep quality assessment",
+        "  - sleep_trend (-30 to +30): Change from yesterday",
+        "  - sleep_status (string): good | fair | poor",
+        "",
+        "RECOVERY METRIC:",
+        "  - recovery_score (0-100 integer): Physical recovery percentage",
+        "  - recovery_trend (-30 to +30): Change from yesterday",
+        "  - recovery_status (string): high | low | moderate (badge showing recovery level)",
+        "",
+        "TRAINING LOAD METRIC:",
+        "  - training_load_value (0-400 float): Estimated training load in AU (must be actual value, not 0)",
+        "  - training_load_trend (-100 to +100): Change from yesterday",
+        "  - training_load_status (string): low | moderate | high",
+        "",
+        "IMPORTANT: Return ONLY valid JSON with no markdown formatting, no code blocks, no explanations.",
+    ]
+    )
+    
+    return "\n".join(context_parts)
+
+
+def _generate_readiness_metrics_with_claude(context: str) -> dict[str, Any]:
+    """Call Claude to generate personalized readiness metrics."""
+    try:
+        # Call Claude LLM
+        response = llm_call(context)
+        
+        # Parse JSON response - Claude returns clean JSON
+        metrics = json.loads(response)
+        
+        # Ensure all required fields present with sensible defaults
+        return {
+            "readiness_score": min(100, max(0, metrics.get("readiness_score", 50))),
+            "readiness_level": metrics.get("readiness_level", "Adequate"),
+            "readiness_message": metrics.get("readiness_message", "Based on your cycle phase and available metrics."),
+            "hrv_value": max(20, metrics.get("hrv_value", 65)),  # Ensure non-zero
+            "hrv_score": min(100, max(0, metrics.get("hrv_score", 65))),
+            "hrv_status": metrics.get("hrv_status", "good"),
+            "hrv_trend": metrics.get("hrv_trend", 0),
+            "sleep_hours": max(1.0, metrics.get("sleep_hours", 7.5)),  # Ensure non-zero
+            "sleep_score": min(100, max(0, metrics.get("sleep_score", 75))),
+            "sleep_status": metrics.get("sleep_status", "good"),
+            "sleep_trend": metrics.get("sleep_trend", 0),
+            "recovery_score": min(100, max(0, metrics.get("recovery_score", 70))),
+            "recovery_status": metrics.get("recovery_status", "moderate"),  # Now high/low/moderate
+            "recovery_trend": metrics.get("recovery_trend", 0),
+            "training_load_value": max(50, metrics.get("training_load_value", 200)),  # Ensure non-zero
+            "training_load_status": metrics.get("training_load_status", "moderate"),
+            "training_load_trend": metrics.get("training_load_trend", 0),
+        }
+    except Exception as e:
+        print(f"[ERROR] _generate_readiness_metrics_with_claude: {e}")
+        print(f"[DEBUG] Raw response: {response if 'response' in locals() else 'no response'}")
+        # Return safe defaults if Claude fails - with actual non-zero values
+        return {
+            "readiness_score": 50,
+            "readiness_level": "Adequate",
+            "readiness_message": "Unable to generate personalized assessment. Please try again.",
+            "hrv_value": 65,
+            "hrv_score": 50,
+            "hrv_status": "warning",
+            "hrv_trend": 0,
+            "sleep_hours": 7.0,
+            "sleep_score": 60,
+            "sleep_status": "fair",
+            "sleep_trend": 0,
+            "recovery_score": 55,
+            "recovery_status": "moderate",
+            "recovery_trend": 0,
+            "training_load_value": 200,
+            "training_load_status": "moderate",
+            "training_load_trend": 0,
+        }

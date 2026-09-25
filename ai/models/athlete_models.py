@@ -10,30 +10,31 @@ from pydantic import BaseModel, Field
 
 class HRVMetric(BaseModel):
     """Heart rate variability metric."""
-    value: int = Field(..., ge=0, description="HRV value in milliseconds")
+    value: int = Field(..., ge=0, description="HRV 7-day average in milliseconds")
     unit: str = "ms"
-    score: int = Field(..., ge=0, le=100, description="HRV converted to 0-100 score")
     trend: int = Field(..., description="Change from previous day (negative=declining)")
     status: str = Field(..., description="good | warning | poor")
 
 
 class SleepMetric(BaseModel):
     """Sleep quality metric."""
-    hours: float = Field(..., ge=0, le=24, description="Sleep duration in hours")
-    score: int = Field(..., ge=0, le=100, description="Sleep quality score 0-100")
+    percentage: int = Field(..., ge=0, le=100, description="Sleep percentage (hours / 8 * 100)")
+    trend: int = Field(..., description="Change from previous day (positive=improving)")
     status: str = Field(..., description="good | fair | poor")
 
 
 class RecoveryMetric(BaseModel):
     """Recovery status metric."""
-    score: int = Field(..., ge=0, le=100, description="Recovery score 0-100")
-    status: str = Field(..., description="recovered | partial | depleted")
+    percentage: int = Field(..., ge=0, le=100, description="Recovery percentage (0-100)")
+    trend: int = Field(..., description="Change from previous day (positive=recovering)")
+    status: str = Field(..., description="high | low | moderate")
 
 
 class TrainingLoadMetric(BaseModel):
     """Training load/strain metric."""
     value: float = Field(..., ge=0, description="Training load in AU (arbitrary units)")
     unit: str = "AU"
+    trend: int = Field(..., description="Change from previous day (negative=decreasing load)")
     status: str = Field(..., description="low | moderate | high")
 
 
@@ -66,7 +67,6 @@ class PhaseRecommendation(BaseModel):
     workout_type: str = Field(..., description="high_intensity | strength | endurance | recovery")
     intensity_level: str = Field(..., description="maximum | high | moderate | low")
     suggested_workouts: list[str]
-    avoid: list[str]
 
 
 class AthleteReadinessResponse(BaseModel):
@@ -74,8 +74,13 @@ class AthleteReadinessResponse(BaseModel):
     date: str = Field(..., description="ISO date of readiness assessment")
     readiness_score: int = Field(..., ge=0, le=100, description="Overall readiness 0-100")
     readiness_level: str = Field(..., description="Peak Ready | Ready | Adequate | Fatigued | Depleted")
-    readiness_message: str
     
+    # Quick stat cards displayed below readiness info
+    hrv: HRVMetric = Field(..., description="Heart rate variability metric for quick display")
+    recovery: RecoveryMetric = Field(..., description="Recovery status metric for quick display")
+    training_load: TrainingLoadMetric = Field(..., description="Training load metric for quick display")
+    
+    # Full metrics object
     metrics: Metrics
     fatigue_alerts: list[FatigueAlert]
     cycle_info: CycleInfo

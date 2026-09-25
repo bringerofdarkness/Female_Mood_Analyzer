@@ -17,6 +17,7 @@ class HistoryItem(BaseModel):
     day_of_week: str
     score: float
     days_ago: int
+    status_label: str = "Unknown"  # e.g., "Radiant", "Glowing", "Good"
 
 class SleepSkinData(BaseModel):
     correlation_detected: bool
@@ -77,4 +78,5 @@ class BeautyResponse(BaseModel):
     today: TodayScan
     history: List[HistoryItem]
     correlations: Correlations
-    ai_insights: AIInsights
+    ai_insights: Optional[AIInsights] = Field(None, description="Null if no skin scan data available")
+    tabs: List[str] = Field(default_factory=lambda: ["Today", "History", "Correlations"], description="UI tab labels")
