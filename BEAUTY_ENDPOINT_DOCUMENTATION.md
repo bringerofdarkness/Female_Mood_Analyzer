@@ -4,7 +4,7 @@
 **Service:** `ai/services/beauty_service.py`  
 **Routes:** `ai/routes/beauty_routes.py`  
 **Models:** `ai/models/beauty_models.py`  
-**Database:** AWS RDS MySQL - `pulse_mysql` database  
+
 **Last Updated:** 2026-09-24  
 **Status:** ✅ BUGS FIXED & TESTED
 
