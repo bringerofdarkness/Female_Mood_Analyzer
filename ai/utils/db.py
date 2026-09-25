@@ -201,6 +201,14 @@ def user_exists(user_id: int) -> bool:
         return cursor.fetchone() is not None
 
 
+def query_db(query: str, params: tuple = None) -> list[dict[str, Any]]:
+    """Execute a generic SELECT query and return results as list of dicts."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(query, params or ())
+        return list(cursor.fetchall())
+
+
 def fetch_calendar_inputs_from_backend(user_id: int) -> dict[str, Any]:
     """
     Fetch cycle calendar inputs from Laravel backend.

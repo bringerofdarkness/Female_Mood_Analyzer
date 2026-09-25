@@ -15,6 +15,7 @@ from ai.routes import summarize_pdf_routes
 from ai.routes import skin_scan_routes
 from ai.routes import smart_analysis_routes
 from ai.routes import trying_to_conceive_routes
+from ai.routes import lifelong_thriving_routes
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -30,6 +31,7 @@ app.include_router(
 app.include_router(athlete_routes.router, prefix="/api/v1", tags=["Athlete_Performance_API"])
 app.include_router(pregnancy_routes.router, prefix="/api/v1", tags=["Pregnancy_Postpartum_API"])
 app.include_router(perimenopause_routes.router, prefix="/api/v1", tags=["Perimenopause_Menopause_API"])
+app.include_router(lifelong_thriving_routes.router, tags=["Lifelong_Thriving_API"])
 app.include_router(beauty_routes.router, prefix="/api", tags=["Beauty_radiance_api"])
 app.include_router(cycle_routes.router, prefix="/api", tags=["Cycle_fertility_api"])
 app.include_router(cycle_awareness_routes.router, prefix="/api", tags=["Cycle_awareness_api's"])

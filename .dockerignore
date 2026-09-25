@@ -33,3 +33,6 @@ docker-compose.yml
 Dockerfile
 DEPLOYMENT.md
 README.md
+*.sql
+*.md
+
