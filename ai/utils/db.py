@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from typing import Any
+import logging
 
 import httpx
 import pymysql
 from pymysql.cursors import DictCursor
 
 from ai.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 @contextmanager
@@ -22,6 +25,9 @@ def get_connection():
         password=settings.MYSQL_PASSWORD,
         database=settings.MYSQL_DATABASE,
         cursorclass=DictCursor,
+        connect_timeout=10,  # Prevent indefinite hanging on connection
+        read_timeout=15,     # Prevent hanging on query results
+        write_timeout=15,    # Prevent hanging on query execution
     )
     try:
         yield conn
@@ -203,10 +209,19 @@ def user_exists(user_id: int) -> bool:
 
 def query_db(query: str, params: tuple = None) -> list[dict[str, Any]]:
     """Execute a generic SELECT query and return results as list of dicts."""
-    with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(query, params or ())
-        return list(cursor.fetchall())
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params or ())
+            return list(cursor.fetchall())
+    except pymysql.OperationalError as e:
+        # Database connection failed - MUST use real AWS data only, no fallback
+        logger.error(f"Database connection failed ({e}). Cannot proceed without AWS RDS data.")
+        raise RuntimeError(f"Database connection error: {e}. AWS RDS is unavailable.")
+    except Exception as e:
+        # Query execution failed - MUST use real AWS data only, no fallback
+        logger.error(f"Database query failed ({e}). Cannot proceed without AWS RDS data.")
+        raise RuntimeError(f"Database query error: {e}. Cannot execute AWS RDS query.")
 
 
 def fetch_calendar_inputs_from_backend(user_id: int) -> dict[str, Any]:

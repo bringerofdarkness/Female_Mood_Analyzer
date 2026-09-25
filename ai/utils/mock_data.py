@@ -318,9 +318,258 @@ MOCK_LIFE_JOURNEYS = {
     ],
 }
 
+# Screening history for preventative reminders
+MOCK_SCREENING_HISTORY = {
+    2: [],  # No screening history (no reminders for this user)
+    9: [
+        {
+            "test_type": "Mammogram",
+            "created_at": date(2024, 11, 15),  # Nov 2024 - overdue (1 year interval)
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Pap Smear",
+            "created_at": date(2023, 8, 20),  # Aug 2023 - overdue (3 year interval)
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Blood Pressure Check",
+            "created_at": date(2026, 8, 15),  # Aug 2026 - up to date (2 year interval)
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Cholesterol Panel",
+            "created_at": date(2023, 3, 10),  # Mar 2023 - overdue (4 year interval)
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Skin Cancer Check",
+            "created_at": date(2025, 12, 1),  # Dec 2025 - due soon (1 year interval)
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Eye Exam",
+            "created_at": date(2025, 3, 20),  # Mar 2025 - up to date (2 year interval)
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Dental Checkup",
+            "created_at": date(2026, 7, 10),  # Jul 2026 - up to date (1 year interval)
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Colonoscopy",
+            "created_at": date(2025, 2, 15),  # Feb 2025 - scheduled (10 year interval)
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Cardiovascular Panel",
+            "created_at": date(2025, 10, 20),  # Oct 2025 - up to date
+            "analysis_status": "complete"
+        },
+    ],
+    10: [
+        {
+            "test_type": "Mammogram",
+            "created_at": date(2026, 8, 10),  # Aug 2026 - up to date
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Bone Density Scan",
+            "created_at": date(2024, 12, 15),  # Dec 2024 - due soon (2 year interval)
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Pap Smear",
+            "created_at": date(2024, 5, 20),  # May 2024 - due soon (3 year interval)
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Blood Pressure Check",
+            "created_at": date(2026, 9, 1),  # Sep 2026 - up to date (2 year interval)
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Cholesterol Panel",
+            "created_at": date(2024, 6, 15),  # Jun 2024 - overdue (4 year interval)
+            "analysis_status": "complete"
+        },
+    ],
+    19: [
+        {
+            "test_type": "Mammogram",
+            "created_at": date(2025, 7, 20),  # Jul 2025 - due soon
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Pap Smear",
+            "created_at": date(2026, 3, 15),  # Mar 2026 - up to date
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Blood Pressure Check",
+            "created_at": date(2026, 9, 10),  # Sep 2026 - up to date
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Skin Cancer Check",
+            "created_at": date(2026, 8, 25),  # Aug 2026 - up to date
+            "analysis_status": "complete"
+        },
+    ],
+    50: [  # User 50 - All recent (all up to date)
+        {
+            "test_type": "Mammogram",
+            "created_at": date(2026, 9, 15),  # Recent
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Pap Smear",
+            "created_at": date(2026, 8, 10),  # Recent
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Blood Pressure Check",
+            "created_at": date(2026, 9, 20),  # Very recent
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Colonoscopy",
+            "created_at": date(2024, 1, 15),  # Older
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Cholesterol Panel",
+            "created_at": date(2026, 2, 28),  # Recent
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Eye Exam",
+            "created_at": date(2026, 7, 5),  # Recent
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Dental Checkup",
+            "created_at": date(2026, 9, 10),  # Recent
+            "analysis_status": "complete"
+        },
+    ],
+    1000: [  # User 1000 - Mix of old and new (mixed status)
+        {
+            "test_type": "Mammogram",
+            "created_at": date(2024, 5, 20),  # Old - due soon
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Pap Smear",
+            "created_at": date(2022, 10, 15),  # Very old - overdue
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Blood Pressure Check",
+            "created_at": date(2026, 8, 1),  # Recent
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Colonoscopy",
+            "created_at": date(2025, 5, 10),  # Scheduled
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Cholesterol Panel",
+            "created_at": date(2024, 12, 15),  # Overdue
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Skin Cancer Check",
+            "created_at": date(2025, 8, 20),  # Due soon
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Eye Exam",
+            "created_at": date(2026, 6, 30),  # Up to date
+            "analysis_status": "complete"
+        },
+    ],
+    999: [  # User 999 - One very old, rest recent (mostly due soon)
+        {
+            "test_type": "Mammogram",
+            "created_at": date(2025, 6, 10),  # Due soon
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Pap Smear",
+            "created_at": date(2020, 1, 15),  # Very old - overdue
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Blood Pressure Check",
+            "created_at": date(2026, 9, 15),  # Very recent - up to date
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Colonoscopy",
+            "created_at": date(2025, 4, 30),  # Moderately old
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Cholesterol Panel",
+            "created_at": date(2025, 9, 5),  # Due soon
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Skin Cancer Check",
+            "created_at": date(2026, 7, 15),  # Recent - up to date
+            "analysis_status": "complete"
+        },
+        {
+            "test_type": "Eye Exam",
+            "created_at": date(2026, 8, 20),  # Recent - up to date
+            "analysis_status": "complete"
+        },
+    ],
+}
+
 # ============================================================================
 # MOCK QUERY FUNCTIONS
 # ============================================================================
+
+def generate_dynamic_screening_history(user_id: int) -> List[Dict]:
+    """
+    Generate realistic screening history for ANY user_id.
+    Uses user_id as seed for consistent, deterministic results.
+    Different users get different screening patterns.
+    """
+    import random
+    
+    # Use user_id as seed for deterministic randomness
+    random.seed(user_id)
+    
+    # Screening test patterns
+    screening_tests = [
+        "Mammogram", "Bone Density Scan", "Colonoscopy",
+        "Pap Smear", "Blood Pressure Check", "Cholesterol Panel",
+        "Skin Cancer Check", "Eye Exam", "Dental Checkup"
+    ]
+    
+    # Randomly generate screening dates for this user
+    history = []
+    for test in screening_tests:
+        # Random days ago (0 = today, 365+ = overdue)
+        days_offset = random.randint(-30, 400)  # Range: very recent to very old
+        screening_date = datetime.now().date() + timedelta(days=-days_offset)
+        
+        history.append({
+            "test_type": test,
+            "created_at": screening_date,
+            "analysis_status": "complete"
+        })
+    
+    # Reset random seed to avoid affecting other randomness
+    random.seed()
+    
+    return history
+
 
 def mock_query_db(query: str, params: tuple = None) -> List[Dict[str, Any]]:
     """
@@ -343,7 +592,36 @@ def mock_query_db(query: str, params: tuple = None) -> List[Dict[str, Any]]:
         return MOCK_MENSTRUAL_CYCLES.get(user_id, [])
     
     elif "lab_reports" in query_lower:
-        return MOCK_LAB_REPORTS.get(user_id, [])
+        # Check if query is looking for a specific screening type
+        screening_history = MOCK_SCREENING_HISTORY.get(user_id, [])
+        
+        # If query contains a LIKE clause searching for a screening name
+        if len(params) > 1 and "%" in str(params[1]):
+            search_term = str(params[1]).replace("%", "").lower()
+            # Filter screening history for matching test types
+            filtered = [
+                s for s in screening_history 
+                if search_term.lower() in s.get("test_type", "").lower()
+            ]
+            
+            # If query is for MAX(created_at), return aggregated result
+            if "max(" in query_lower:
+                if filtered:
+                    # Return the most recent record with last_date field
+                    max_record = max(filtered, key=lambda x: x.get("created_at", date.today()))
+                    return [{
+                        "last_date": max_record.get("created_at")
+                    }]
+                else:
+                    # No matching records
+                    return [{"last_date": None}]
+            
+            # Otherwise return matching records
+            if filtered:
+                return filtered
+        
+        # Return general lab reports + screening history
+        return MOCK_LAB_REPORTS.get(user_id, []) + screening_history
     
     elif "health_goals" in query_lower:
         return MOCK_HEALTH_GOALS.get(user_id, [])
