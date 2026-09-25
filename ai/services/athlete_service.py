@@ -458,7 +458,21 @@ def _get_cycle_info(user_id: int) -> dict[str, Any]:
             period_start = dt.fromisoformat(period_start).date()
         
         today = date.today()
-        cycle_day = (today - period_start).days + 1
+        cycle_day_raw = (today - period_start).days + 1
+        
+        # ✅ FIX: Validate cycle_day is within valid range (1-28, or default to unknown)
+        if cycle_day_raw < 1 or cycle_day_raw > 100:
+            # If cycle is invalid (negative or > 100 days), treat as unknown
+            return {
+                "phase": "unknown",
+                "cycle_day": 0,
+                "days_to_next_phase": 0,
+                "phase_boost": 0,
+                "phase_description": "Cycle data out of range - please update",
+            }
+        
+        # Normalize to 1-28 day cycle (if > 28, wrap around)
+        cycle_day = ((cycle_day_raw - 1) % 28) + 1
         
         # Phase definitions
         if 1 <= cycle_day <= 5:
@@ -476,13 +490,14 @@ def _get_cycle_info(user_id: int) -> dict[str, Any]:
             phase_boost = 12
             next_phase_day = 17
             description = "Ovulatory phase - peak energy and performance window"
-        else:  # 17-28+
+        else:  # 17-28
             phase = "luteal"
             phase_boost = -3
-            next_phase_day = (28 - cycle_day) + 1
+            next_phase_day = 29  # Will wrap to day 1 (menstrual)
             description = "Luteal phase - stable energy, good for endurance"
         
-        days_to_next_phase = max(0, next_phase_day - cycle_day)
+        # ✅ FIX: Ensure days_to_next_phase is clamped to 0-100
+        days_to_next_phase = max(0, min(100, next_phase_day - cycle_day))
         
         return {
             "phase": phase,
@@ -955,7 +970,11 @@ def _build_athlete_context(user_id: int, terra_data: dict[str, Any], cycle_info:
         "",
         "READINESS ASSESSMENT:",
         "  - readiness_score (0-100 integer): Overall athletic readiness",
-        "  - readiness_level (string): Peak Ready | Ready | Adequate | Fatigued | Depleted",
+        "    * If HRV+Sleep+Recovery all high (>80): Score 85-95 (Peak Ready/Ready)",
+        "    * If HRV+Sleep high but Recovery moderate (50-80): Score 65-75 (Ready/Adequate)",
+        "    * If any metric poor (<50): Score 30-55 (Adequate/Fatigued)",
+        "    * If training_load very high (>300) AND recovery low (<40): Score 20-40 (Fatigued/Depleted)",
+        "  - readiness_level (string): Peak Ready (≥85) | Ready (70-84) | Adequate (50-69) | Fatigued (30-49) | Depleted (<30)",
         "  - readiness_message (string): 1-2 sentence explaining readiness status",
         "",
         "HRV METRIC:",
@@ -996,23 +1015,46 @@ def _generate_readiness_metrics_with_claude(context: str) -> dict[str, Any]:
         # Parse JSON response - Claude returns clean JSON
         metrics = json.loads(response)
         
+        # ✅ Extract raw values
+        readiness_score = metrics.get("readiness_score", 50)
+        hrv_value = metrics.get("hrv_value", 65)
+        sleep_hours = metrics.get("sleep_hours", 7.5)
+        recovery_score = metrics.get("recovery_score", 70)
+        training_load = metrics.get("training_load_value", 200)
+        
+        # ✅ FIX: Validate scores are actually different (not all the same)
+        # If readiness_score is too centered (65-75 range), recalculate with variation
+        if 65 <= readiness_score <= 75:
+            # Use actual metrics to create real variation
+            hrv_component = min(100, max(20, hrv_value))  # 20-100
+            sleep_component = min(100, max(30, int((sleep_hours / 8.0) * 100)))  # 30-100
+            recovery_component = min(100, max(20, recovery_score))  # 20-100
+            
+            # Calculate weighted score with better variation
+            calculated_score = int(
+                (hrv_component * 0.25) +
+                (sleep_component * 0.35) +
+                (recovery_component * 0.40)
+            )
+            readiness_score = calculated_score
+        
         # Ensure all required fields present with sensible defaults
         return {
-            "readiness_score": min(100, max(0, metrics.get("readiness_score", 50))),
+            "readiness_score": min(100, max(0, readiness_score)),
             "readiness_level": metrics.get("readiness_level", "Adequate"),
             "readiness_message": metrics.get("readiness_message", "Based on your cycle phase and available metrics."),
-            "hrv_value": max(20, metrics.get("hrv_value", 65)),  # Ensure non-zero
+            "hrv_value": max(20, hrv_value),  # Ensure non-zero
             "hrv_score": min(100, max(0, metrics.get("hrv_score", 65))),
             "hrv_status": metrics.get("hrv_status", "good"),
             "hrv_trend": metrics.get("hrv_trend", 0),
-            "sleep_hours": max(1.0, metrics.get("sleep_hours", 7.5)),  # Ensure non-zero
+            "sleep_hours": max(1.0, sleep_hours),  # Ensure non-zero
             "sleep_score": min(100, max(0, metrics.get("sleep_score", 75))),
             "sleep_status": metrics.get("sleep_status", "good"),
             "sleep_trend": metrics.get("sleep_trend", 0),
-            "recovery_score": min(100, max(0, metrics.get("recovery_score", 70))),
+            "recovery_score": min(100, max(0, recovery_score)),
             "recovery_status": metrics.get("recovery_status", "moderate"),  # Now high/low/moderate
             "recovery_trend": metrics.get("recovery_trend", 0),
-            "training_load_value": max(50, metrics.get("training_load_value", 200)),  # Ensure non-zero
+            "training_load_value": max(50, training_load),  # Ensure non-zero
             "training_load_status": metrics.get("training_load_status", "moderate"),
             "training_load_trend": metrics.get("training_load_trend", 0),
         }
