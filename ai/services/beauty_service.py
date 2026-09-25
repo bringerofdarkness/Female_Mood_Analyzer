@@ -54,7 +54,7 @@ def _score_to_status_label(score: int) -> str:
 
 
 def _extract_scan_findings(scan_data: dict[str, Any]) -> list[FindingItem]:
-    """Extract detailed scan findings from skin metrics (matching UI). Returns FindingItem instances."""
+    """Extract detailed scan findings from skin metrics. AI-generated descriptions via Claude LLM."""
     if not scan_data:
         return []
     
@@ -89,74 +89,73 @@ def _extract_scan_findings(scan_data: dict[str, Any]) -> list[FindingItem]:
     redness = safe_score(scan_data.get('redness_score'))
     texture = safe_score(scan_data.get('texture_score'))
     elasticity = safe_score(scan_data.get('elasticity_score'))
+    glow = safe_score(scan_data.get('glow_index'))
     
-    # Map metrics to detailed findings with badge based on score range
-    
-    # Moisture Barrier finding
-    if hydration is not None:
-        if hydration >= 75:
-            status = "Well-protected, no signs of disruption"
-        elif hydration >= 50:
-            status = "Adequate protection with minor dryness"
-        else:
-            status = "Compromised barrier, needs hydration"
+    # Generate AI-powered finding descriptions
+    try:
+        from ai.utils.llm_call import llm_call
         
+        prompt = f"""Analyze these skin metrics and provide brief, professional finding descriptions for each metric. 
+        Return ONLY a JSON object with 4 keys: "moisture_barrier", "pore_congestion", "inflammation_markers", "melanin_uniformity"
+        Each value should be a 1-sentence clinical description (20-40 words).
+        
+        Metrics:
+        - Hydration: {hydration}/100
+        - Pore Health: {pore}/100
+        - Redness: {redness}/100
+        - Texture: {texture}/100
+        - Elasticity: {elasticity}/100
+        - Glow: {glow}/100
+        
+        Return ONLY valid JSON, no markdown code blocks."""
+        
+        response = llm_call(prompt)
+        ai_descriptions = json.loads(response) if isinstance(response, str) else response
+    except Exception as e:
+        print(f"[DEBUG] AI findings generation failed: {e}")
+        ai_descriptions = {}
+    
+    # Moisture Barrier finding - AI generated
+    if hydration is not None:
+        ai_status = ai_descriptions.get('moisture_barrier', f"Hydration level at {hydration}/100")
         findings.append(FindingItem(
             finding="Moisture barrier",
-            status=status,
+            status=ai_status,
             badge=score_to_badge(hydration),
             score=hydration
         ))
     
-    # Pore Health finding
+    # Pore Health finding - AI generated
     if pore is not None:
-        if pore >= 75:
-            status = "Clear pores detected in all zones"
-        elif pore >= 50:
-            status = "Minimal blockage detected in T-zone"
-        else:
-            status = "Significant blockage detected"
-        
+        ai_status = ai_descriptions.get('pore_congestion', f"Pore health at {pore}/100")
         findings.append(FindingItem(
             finding="Pore congestion",
-            status=status,
+            status=ai_status,
             badge=score_to_badge(pore),
             score=pore
         ))
     
-    # Inflammation Markers finding
+    # Inflammation Markers finding - AI generated
     if redness is not None:
-        if redness <= 30:
-            status = "Clear skin, minimal redness detected"
-        elif redness <= 60:
-            status = "Slight redness around cheeks and nose"
-        else:
-            status = "Significant inflammation across zones"
-        
+        ai_status = ai_descriptions.get('inflammation_markers', f"Redness level at {redness}/100")
         findings.append(FindingItem(
             finding="Inflammation markers",
-            status=status,
+            status=ai_status,
             badge=score_to_badge(redness),
             score=redness
         ))
     
-    # Melanin Uniformity finding
+    # Melanin Uniformity finding - AI generated
     if texture is not None:
-        if texture >= 75:
-            status = "Even tone distribution across all zones"
-        elif texture >= 50:
-            status = "Minor discoloration in patches, mostly cheeks"
-        else:
-            status = "Significant discoloration across zones"
-        
+        ai_status = ai_descriptions.get('melanin_uniformity', f"Texture uniformity at {texture}/100")
         findings.append(FindingItem(
             finding="Melanin uniformity",
-            status=status,
+            status=ai_status,
             badge=score_to_badge(texture),
             score=texture
         ))
     
-    return findings  # Returns List[FindingItem] - 4 findings (hydration, pore, inflammation, melanin)
+    return findings
 
 
 def _calculate_sleep_skin_correlation(
@@ -173,22 +172,35 @@ def _calculate_sleep_skin_correlation(
             "insight": "Insufficient data for correlation analysis"
         }
     
-    # Prepare data for correlation
+    # Use stress level as proxy (inverse relationship: lower stress = better skin)
+    stress_value = activity_data.get('avg_stress_level')
+    activity_value = activity_data.get('avg_activity_seconds')
+    
+    # If no lifestyle data available, return insufficient data message
+    if stress_value is None and activity_value is None:
+        return {
+            "correlation_detected": False,
+            "correlation_strength": 0,
+            "chart_data": [],
+            "insight": "Connect a fitness/sleep tracker to see lifestyle-skin correlations"
+        }
+    
     skin_scores = [s.get('overall_score', 0) for s in reversed(skin_data)]  # Chronological order
-    sleep_values = [activity_data.get('avg_sleep', 0)] * len(skin_scores)
+    # Use stress level as proxy (inverted: higher stress = lower skin health)
+    lifestyle_values = [100 - min(100, (stress_value or 50))] * len(skin_scores)  # Normalize stress to inverse health scale
     
     # Calculate simple correlation
     if len(skin_scores) >= 2:
         avg_skin = sum(skin_scores) / len(skin_scores)
-        avg_sleep = sum(sleep_values) / len(sleep_values) if sleep_values else 0
+        avg_lifestyle = sum(lifestyle_values) / len(lifestyle_values) if lifestyle_values else 0
         
-        covariance = sum((skin_scores[i] - avg_skin) * (sleep_values[i] - avg_sleep) 
+        covariance = sum((skin_scores[i] - avg_skin) * (lifestyle_values[i] - avg_lifestyle) 
                         for i in range(len(skin_scores))) / len(skin_scores)
         
         std_skin = (sum((s - avg_skin) ** 2 for s in skin_scores) / len(skin_scores)) ** 0.5
-        std_sleep_val = (sum((s - avg_sleep) ** 2 for s in sleep_values) / len(sleep_values)) ** 0.5 if len(sleep_values) > 0 else 1
+        std_lifestyle = (sum((s - avg_lifestyle) ** 2 for s in lifestyle_values) / len(lifestyle_values)) ** 0.5 if len(lifestyle_values) > 0 else 1
         
-        correlation = covariance / (std_skin * std_sleep_val) if (std_skin * std_sleep_val) > 0 else 0
+        correlation = covariance / (std_skin * std_lifestyle) if (std_skin * std_lifestyle) > 0 else 0
         correlation = max(-1, min(1, correlation))
         
         # Build chart data
@@ -203,7 +215,8 @@ def _calculate_sleep_skin_correlation(
             chart_data.append({
                 "date": date_label,
                 "skin_score": scan.get('overall_score', 0),
-                "sleep_hours": activity_data.get('avg_sleep', 0)
+                "stress_level": activity_data.get('avg_stress_level'),
+                "activity_seconds": activity_data.get('avg_activity_seconds')
             })
         
         return {
@@ -211,7 +224,7 @@ def _calculate_sleep_skin_correlation(
             "correlation_strength": round(abs(correlation) * 100, 1),
             "correlation_direction": "positive" if correlation > 0 else "negative",
             "chart_data": chart_data,
-            "insight": "Each extra hour of sleep boosts your skin score by ~4 points" if correlation > 0.3 else "Sleep correlation data accumulating"
+            "insight": "Stress management directly impacts your skin health - lower stress = better complexion" if correlation > 0.3 else "Lifestyle-skin correlation data accumulating"
         }
     
     return {
@@ -220,6 +233,62 @@ def _calculate_sleep_skin_correlation(
         "chart_data": [],
         "insight": "Minimum 2 scans needed for correlation analysis"
     }
+
+
+def _generate_neumera_insight(
+    today_skin: dict[str, Any],
+    activity_data: dict[str, Any],
+    cycle_data: dict[str, Any],
+    history_skin: list[dict[str, Any]]
+) -> str:
+    """Generate short, dynamic AI insight about today's skin for UI subtitle. Max 1-2 sentences."""
+    try:
+        from ai.utils.llm_call import llm_call
+        
+        # Extract key metrics for context
+        overall_score = today_skin.get('overall_score', 0)
+        hydration = today_skin.get('hydration_score', 0)
+        redness = today_skin.get('redness_score', 0)
+        glow = today_skin.get('glow_index', 0)
+        sleep_hours = activity_data.get('sleep_hours', 0) if activity_data else 0
+        
+        # Calculate score trend
+        score_trend = ""
+        if history_skin:
+            prev_score = history_skin[0].get('overall_score', 0)
+            if overall_score > prev_score:
+                score_trend = f"up {int(overall_score - prev_score)}pts from last scan"
+            elif overall_score < prev_score:
+                score_trend = f"down {int(prev_score - overall_score)}pts from last scan"
+        
+        # Current cycle phase context
+        cycle_phase = cycle_data.get('current_phase', '') if cycle_data else ''
+        
+        prompt = f"""Generate a SHORT, dynamic skin insight (max 1 sentence, 15-20 words) for a woman's skincare app.
+        
+User's today's metrics:
+- Overall score: {overall_score}/100
+- Hydration: {hydration}/100
+- Redness: {redness}/100
+- Glow: {glow}/100
+- Sleep last night: {sleep_hours}h
+- Score trend: {score_trend if score_trend else 'first scan'}
+- Cycle phase: {cycle_phase if cycle_phase else 'unknown'}
+
+Requirements:
+- 1 sentence max, natural language
+- Focus on most impactful factor (sleep, hydration, cycle phase, or score improvement)
+- Actionable and encouraging
+- No technical jargon
+- Return ONLY the insight text, nothing else"""
+        
+        insight = llm_call(prompt).strip()
+        return insight if insight else f"Your skin score is {overall_score}/100 today."
+    
+    except Exception as e:
+        print(f"[DEBUG] Neumera insight generation failed: {e}")
+        overall_score = today_skin.get('overall_score', 0)
+        return f"Your skin score is {overall_score}/100 today."
 
 
 def _format_history_for_ui(history_scans: list[dict[str, Any]]) -> list[HistoryItem]:
@@ -252,7 +321,8 @@ def _format_history_for_ui(history_scans: list[dict[str, Any]]) -> list[HistoryI
                 date=date_str,
                 day_of_week=day_of_week,
                 score=float(scan.get('overall_score', 0)),
-                days_ago=days_ago
+                days_ago=days_ago,
+                status_label=scan.get('status_label', 'Unknown')
             ))
     
     return formatted  # Returns List[HistoryItem]
@@ -393,6 +463,20 @@ def get_beauty_overview(request: BeautyRequest) -> BeautyResponse:
         # Fetch menstrual cycle data for context
         cycle_data = _fetch_menstrual_cycle_context(user_id)
         
+        # Generate dynamic neumera_insight (AI-generated, short subtitle)
+        # IMPORTANT: Always generate, even if no scan data (provide helpful message)
+        if today_skin and today_skin.get('overall_score'):
+            # User has scan data - generate personalized AI insight
+            today_skin['neumera_insight'] = _generate_neumera_insight(
+                today_skin=today_skin,
+                activity_data=activity_data,
+                cycle_data=cycle_data,
+                history_skin=history_skin
+            )
+        else:
+            # No scan data - provide helpful default message
+            today_skin['neumera_insight'] = "Complete your first skin scan to get personalized insights and recommendations."
+        
         # Check if user has any data - if not, return early with null insights
         has_data = bool(today_skin and today_skin.get('overall_score')) or bool(history_skin)
         
@@ -486,8 +570,8 @@ def get_beauty_overview(request: BeautyRequest) -> BeautyResponse:
                         "ovulation": PhaseData(label="Ovulation", score=0, description=""),
                         "luteal": PhaseData(label="Luteal", score=0, description=""),
                     },
-                    best_phase="",
-                    worst_phase=""
+                    best_phase="ovulation",
+                    worst_phase="menstrual"
                 )
             ),
             ai_insights=ai_insights
@@ -598,84 +682,111 @@ def _fetch_skin_scan_history(user_id: int, days: int = 30) -> list[dict[str, Any
         return []
 
 
-def _fetch_terra_activity_data(user_id: int, days: int = 30) -> dict[str, Any]:
-    """Fetch terra activity data (sleep, activity, recovery). Returns 0 for missing values."""
+def _fetch_terra_activity_data(user_id: int, days: int = 90) -> dict[str, Any]:
+    """Fetch terra activity data from JSON payload. Extracts MET, activity, calories, stress data."""
     try:
         with get_connection() as conn:
             cur = conn.cursor()
+            # Note: Removed ORDER BY to avoid sort buffer error on large JSON payloads
             cur.execute("""
-                SELECT 
-                    type,
-                    JSON_EXTRACT(payload, '$.data[0].scores.sleep') as sleep_score,
-                    JSON_EXTRACT(payload, '$.data[0].scores.activity') as activity_score,
-                    JSON_EXTRACT(payload, '$.data[0].scores.recovery') as recovery_score,
-                    JSON_EXTRACT(payload, '$.data[0].MET_data.avg_level') as met_avg,
-                    data_generated_at,
-                    created_at
+                SELECT payload
                 FROM terra_activity_data
                 WHERE user_id = %s
                 AND type = 'daily'
                 AND created_at >= DATE_SUB(NOW(), INTERVAL %s DAY)
-                ORDER BY created_at DESC
-                LIMIT %s
-            """, (user_id, days, days))
+            """, (user_id, days))
             
             rows = cur.fetchall()
+            if not rows:
+                return {
+                    "avg_met": None,
+                    "avg_activity_seconds": None,
+                    "avg_calories_burned": None,
+                    "avg_stress_level": None,
+                    "data_points": 0
+                }
             
-            # Aggregate data with null safety
-            sleep_values = []
-            activity_values = []
-            recovery_values = []
             met_values = []
+            activity_seconds_values = []
+            calories_values = []
+            stress_values = []
             
             for row in rows:
-                sleep_score = row.get('sleep_score')
-                activity_score = row.get('activity_score')
-                recovery_score = row.get('recovery_score')
-                met_avg = row.get('met_avg')
-                
-                # Safely convert to float, skip if None or invalid
-                if sleep_score is not None:
-                    try:
-                        val = float(sleep_score)
-                        if val > 0:  # Only include valid positive values
-                            sleep_values.append(val)
-                    except (TypeError, ValueError):
-                        pass
-                if activity_score is not None:
-                    try:
-                        val = float(activity_score)
-                        if val > 0:
-                            activity_values.append(val)
-                    except (TypeError, ValueError):
-                        pass
-                if recovery_score is not None:
-                    try:
-                        val = float(recovery_score)
-                        if val > 0:
-                            recovery_values.append(val)
-                    except (TypeError, ValueError):
-                        pass
-                if met_avg is not None:
-                    try:
-                        val = float(met_avg)
-                        if val > 0:
-                            met_values.append(val)
-                    except (TypeError, ValueError):
-                        pass
+                try:
+                    payload = row.get('payload')
+                    if not payload:
+                        continue
+                    
+                    # Parse JSON if needed
+                    if isinstance(payload, str):
+                        import json
+                        payload_dict = json.loads(payload)
+                    else:
+                        payload_dict = payload
+                    
+                    # Extract from nested structure
+                    data_array = payload_dict.get('data', [])
+                    if not data_array or len(data_array) == 0:
+                        continue
+                    
+                    first_record = data_array[0]
+                    
+                    # MET average level
+                    met_data = first_record.get('MET_data', {})
+                    if met_data and met_data.get('avg_level'):
+                        try:
+                            met_values.append(float(met_data['avg_level']))
+                        except (TypeError, ValueError):
+                            pass
+                    
+                    # Activity seconds (from active_durations_data)
+                    active_dur = first_record.get('active_durations_data', {})
+                    if active_dur and active_dur.get('activity_seconds'):
+                        try:
+                            activity_seconds_values.append(float(active_dur['activity_seconds']))
+                        except (TypeError, ValueError):
+                            pass
+                    
+                    # Calories burned
+                    cal_data = first_record.get('calories_data', {})
+                    if cal_data and cal_data.get('total_burned_calories'):
+                        try:
+                            calories_values.append(float(cal_data['total_burned_calories']))
+                        except (TypeError, ValueError):
+                            pass
+                    
+                    # Stress level (avg)
+                    stress_data = first_record.get('stress_data', {})
+                    if stress_data and stress_data.get('avg_stress_level'):
+                        try:
+                            stress_values.append(float(stress_data['avg_stress_level']))
+                        except (TypeError, ValueError):
+                            pass
+                            
+                except (KeyError, TypeError, ValueError) as e:
+                    # Skip malformed records, continue processing
+                    continue
             
-            # Return averages only - None if no data (avoids misleading AI analysis)
+            # Return computed averages - None if no valid data found
             return {
-                "avg_sleep": round(sum(sleep_values) / len(sleep_values), 2) if sleep_values else None,
-                "avg_activity": round(sum(activity_values) / len(activity_values), 2) if activity_values else None,
-                "avg_recovery": round(sum(recovery_values) / len(recovery_values), 2) if recovery_values else None,
                 "avg_met": round(sum(met_values) / len(met_values), 2) if met_values else None,
+                "avg_activity_seconds": round(sum(activity_seconds_values) / len(activity_seconds_values), 0) if activity_seconds_values else None,
+                "avg_calories_burned": round(sum(calories_values) / len(calories_values), 2) if calories_values else None,
+                "avg_stress_level": round(sum(stress_values) / len(stress_values), 2) if stress_values else None,
                 "data_points": len(rows)
             }
     
     except Exception as exc:
         print(f"Error fetching terra activity data: {exc}")
-        return {"avg_sleep": 0, "avg_activity": 0, "avg_recovery": 0, "avg_met": 0, "data_points": 0}
+        import traceback
+        traceback.print_exc()
+        return {
+            "avg_met": None,
+            "avg_activity_seconds": None,
+            "avg_calories_burned": None,
+            "avg_stress_level": None,
+            "data_points": 0
+        }
 
 
 def _fetch_menstrual_cycle_context(user_id: int) -> dict[str, Any]:
@@ -760,19 +871,21 @@ def _build_beauty_context(
         avg_overall = sum(s.get('overall_score', 0) for s in history_skin) / len(history_skin)
         context_parts.append(f"  Average Overall Score: {round(avg_overall, 1)}/100")
     
-    # Activity/sleep correlation - only if data exists
+    # Activity/lifestyle metrics - only if data exists
     if activity_data and activity_data.get('data_points', 0) > 0:
         context_parts.append("\nLIFESTYLE METRICS (past 30 days avg):")
-        if activity_data.get('avg_sleep') is not None:
-            context_parts.append(f"  Average Sleep: {activity_data['avg_sleep']} hours/night")
-        if activity_data.get('avg_activity') is not None:
-            context_parts.append(f"  Activity Score: {activity_data['avg_activity']}/100")
-        if activity_data.get('avg_recovery') is not None:
-            context_parts.append(f"  Recovery Score: {activity_data['avg_recovery']}/100")
-        if activity_data.get('avg_met'):
-            context_parts.append(f"  Avg MET Level: {activity_data['avg_met']}")
+        if activity_data.get('avg_met') is not None:
+            context_parts.append(f"  Avg MET Level (Activity): {activity_data['avg_met']}")
+        if activity_data.get('avg_activity_seconds') is not None:
+            mins = int(activity_data['avg_activity_seconds'] / 60)
+            context_parts.append(f"  Daily Activity: ~{mins} minutes")
+        if activity_data.get('avg_calories_burned') is not None:
+            context_parts.append(f"  Avg Calories Burned: {activity_data['avg_calories_burned']}")
+        if activity_data.get('avg_stress_level') is not None:
+            stress_pct = min(100, max(0, activity_data['avg_stress_level']))
+            context_parts.append(f"  Avg Stress Level: {stress_pct}%")
     else:
-        context_parts.append("\nLIFESTYLE METRICS: Not connected yet. Link a fitness/sleep tracker for insights.")
+        context_parts.append("\nLIFESTYLE METRICS: No activity data available. Connect a fitness/health tracker for insights.")
     
     # Cycle phase
     if cycle_data:
@@ -823,6 +936,70 @@ def _generate_beauty_insights(context: str) -> AIInsights:
         )
 
 
+def _generate_cycle_phase_description(
+    phase: str,
+    avg_score: int,
+    phase_data: list[dict[str, Any]]
+) -> str:
+    """Generate personalized AI description of user's skin during a specific cycle phase."""
+    try:
+        from ai.utils.llm_call import llm_call
+        
+        # Extract metrics from scans in this phase
+        hydration_scores = []
+        redness_scores = []
+        glow_scores = []
+        texture_scores = []
+        
+        for scan in phase_data:
+            if scan.get('hydration_score'):
+                hydration_scores.append(scan['hydration_score'])
+            if scan.get('redness_score'):
+                redness_scores.append(scan['redness_score'])
+            if scan.get('glow_index'):
+                glow_scores.append(scan['glow_index'])
+            if scan.get('texture_score'):
+                texture_scores.append(scan['texture_score'])
+        
+        avg_hydration = sum(hydration_scores) / len(hydration_scores) if hydration_scores else None
+        avg_redness = sum(redness_scores) / len(redness_scores) if redness_scores else None
+        avg_glow = sum(glow_scores) / len(glow_scores) if glow_scores else None
+        avg_texture = sum(texture_scores) / len(texture_scores) if texture_scores else None
+        
+        # Build context for Claude
+        hydration_str = f"{avg_hydration:.0f}/100" if avg_hydration else "no data"
+        redness_str = f"{avg_redness:.0f}/100" if avg_redness else "no data"
+        glow_str = f"{avg_glow:.0f}/100" if avg_glow else "no data"
+        texture_str = f"{avg_texture:.0f}/100" if avg_texture else "no data"
+        
+        metrics_context = f"""
+User's skin during {phase} phase (score: {avg_score}/100):
+- Hydration: {hydration_str}
+- Redness: {redness_str}
+- Glow: {glow_str}
+- Texture: {texture_str}
+- Scans in phase: {len(phase_data)}
+"""
+        
+        prompt = f"""Generate a SHORT, personalized description (max 1 sentence, 12-18 words) of how this woman's skin performs during her {phase} phase.
+
+{metrics_context}
+
+Requirements:
+- Based on ACTUAL data (not generic hormonal claims)
+- Mention specific skin characteristics they experience
+- Actionable and practical
+- No generic disclaimers
+- Return ONLY the description, nothing else"""
+        
+        description = llm_call(prompt).strip()
+        return description if description else f"Skin score averages {avg_score}/100 during {phase} phase."
+    
+    except Exception as e:
+        print(f"[DEBUG] Cycle phase description generation failed for {phase}: {e}")
+        return f"Skin score averages {avg_score}/100 during {phase} phase."
+
+
 def _calculate_cycle_phase_correlations(
     user_id: int,
     skin_data: list[dict[str, Any]]
@@ -867,12 +1044,13 @@ def _calculate_cycle_phase_correlations(
                         "ovulation": PhaseData(label="Ovulation (D14)", score=0, description="Peak glow & skin radiance"),
                         "luteal": PhaseData(label="Luteal (D15-28)", score=0, description="Progesterone causes texture issues"),
                     },
-                    best_phase=None,
-                    worst_phase=None
+                    best_phase="ovulation",
+                    worst_phase="menstrual"
                 )
             
             # Build phase scores from skin data mapped to cycle phases
             phase_scores = {"menstrual": [], "follicular": [], "ovulation": [], "luteal": []}
+            phase_scans = {"menstrual": [], "follicular": [], "ovulation": [], "luteal": []}  # Track scans per phase
             
             for scan in skin_data:
                 scan_date = scan.get('created_at')
@@ -906,38 +1084,40 @@ def _calculate_cycle_phase_correlations(
                         else:  # 14-28
                             phase = "luteal"
                         
-                        # Add score
+                        # Add score and track scan
                         score = scan.get('overall_score')
                         if score is not None:
                             try:
                                 phase_scores[phase].append(float(score))
+                                phase_scans[phase].append(scan)  # Track scan for description generation
                             except (TypeError, ValueError):
                                 pass
                         break
             
             # Calculate averages for each phase
             phase_breakdown = {}
+            labels = {
+                "menstrual": "Menstrual (D1-5)",
+                "follicular": "Follicular (D6-13)",
+                "ovulation": "Ovulation (D14)",
+                "luteal": "Luteal (D15-28)"
+            }
+            
             for phase in ["menstrual", "follicular", "ovulation", "luteal"]:
                 scores = phase_scores[phase]
                 avg_score = int(sum(scores) / len(scores)) if scores else 0
                 
-                descriptions = {
-                    "menstrual": "Increased inflammation & sensitivity",
-                    "follicular": "Rising estrogen boosts collagen & hydration",
-                    "ovulation": "Peak glow & skin radiance",
-                    "luteal": "Progesterone causes texture issues"
-                }
-                labels = {
-                    "menstrual": "Menstrual (D1-5)",
-                    "follicular": "Follicular (D6-13)",
-                    "ovulation": "Ovulation (D14)",
-                    "luteal": "Luteal (D15-28)"
-                }
+                # Generate AI-personalized description based on user's actual phase data
+                phase_description = _generate_cycle_phase_description(
+                    phase=phase,
+                    avg_score=avg_score,
+                    phase_data=phase_scans[phase]  # Pass only scans from this phase
+                )
                 
                 phase_breakdown[phase] = PhaseData(
                     label=labels[phase],
                     score=min(100, max(0, avg_score)),
-                    description=descriptions[phase]
+                    description=phase_description
                 )
             
             # Determine best and worst phases - only if data exists
@@ -952,11 +1132,11 @@ def _calculate_cycle_phase_correlations(
                     best_phase = max(scores_list, key=lambda x: x[1])[0]
                     worst_phase = min(scores_list, key=lambda x: x[1])[0]
                 else:  # All zeros, no data
-                    best_phase = None
-                    worst_phase = None
+                    best_phase = "ovulation"
+                    worst_phase = "menstrual"
             else:
-                best_phase = None
-                worst_phase = None
+                best_phase = "ovulation"
+                worst_phase = "menstrual"
             
             return CyclePhases(
                 phase_breakdown=phase_breakdown,
@@ -974,8 +1154,8 @@ def _calculate_cycle_phase_correlations(
                 "ovulation": PhaseData(label="Ovulation (D14)", score=0, description="Peak glow & skin radiance"),
                 "luteal": PhaseData(label="Luteal (D15-28)", score=0, description="Progesterone causes texture issues"),
             },
-            best_phase=None,
-            worst_phase=None
+            best_phase="ovulation",
+            worst_phase="menstrual"
         )
 
 
@@ -1004,39 +1184,39 @@ def _calculate_correlations(
         avg_skin = sum(skin_scores) / len(skin_scores) if skin_scores else 0
         
         # Safely get activity values
-        avg_sleep = activity_data.get('avg_sleep')
-        if avg_sleep is None:
-            avg_sleep = 0
+        avg_met = activity_data.get('avg_met')
+        if avg_met is None:
+            avg_met = 0
         else:
             try:
-                avg_sleep = float(avg_sleep)
+                avg_met = float(avg_met)
             except (TypeError, ValueError):
-                avg_sleep = 0
+                avg_met = 0
         
-        avg_activity = activity_data.get('avg_activity')
+        avg_stress = activity_data.get('avg_stress_level')
+        if avg_stress is None:
+            avg_stress = 0
+        else:
+            try:
+                avg_stress = float(avg_stress)
+            except (TypeError, ValueError):
+                avg_stress = 0
+        
+        avg_activity = activity_data.get('avg_activity_seconds')
         if avg_activity is None:
             avg_activity = 0
         else:
             try:
-                avg_activity = float(avg_activity)
+                avg_activity = float(avg_activity) / 3600  # Convert seconds to hours
             except (TypeError, ValueError):
                 avg_activity = 0
         
-        avg_recovery = activity_data.get('avg_recovery')
-        if avg_recovery is None:
-            avg_recovery = 0
-        else:
-            try:
-                avg_recovery = float(avg_recovery)
-            except (TypeError, ValueError):
-                avg_recovery = 0
-        
         return {
             "skin_trend": "improving" if skin_scores and skin_scores[0] > avg_skin else "stable",
-            "sleep_impact": "high" if avg_sleep > 70 else "moderate",
-            "activity_impact": "high" if avg_activity > 70 else "moderate",
-            "recovery_status": "good" if avg_recovery > 70 else "needs_improvement",
-            "lifestyle_score": round((avg_sleep + avg_activity + avg_recovery) / 3, 1)
+            "stress_impact": "high" if avg_stress > 60 else "moderate",
+            "activity_impact": "high" if avg_activity > 2 else "moderate",
+            "met_level": "good" if avg_met > 10 else "low",
+            "lifestyle_score": round((100 - min(100, avg_stress) + avg_met + (avg_activity * 10)) / 3, 1)
         }
     except Exception as e:
         print(f"Error in _calculate_correlations: {e}")

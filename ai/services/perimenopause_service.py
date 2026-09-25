@@ -48,6 +48,63 @@ SYMPTOM_SEVERITY_MAP = {"none": 0, "mild": 1, "moderate": 2, "severe": 3}
 
 
 # ============================================================================
+# HELPER FUNCTIONS - Symptom Parsing
+# ============================================================================
+
+def _normalize_symptoms(symptoms: Any) -> Dict[str, Any]:
+    """
+    Convert symptoms to standardized dict format.
+    Handles both:
+    - Old list format: ["Cramps", "Brain fog", "Hot flashes"] -> {symptom_name: "moderate"}
+    - New dict format: {"hot_flash": "severe", "brain_fog": "mild"} -> passed through
+    """
+    if not symptoms:
+        return {}
+    
+    # If it's a string, try to parse as JSON
+    if isinstance(symptoms, str):
+        try:
+            symptoms = json.loads(symptoms)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    
+    # If it's a list (old format), convert to dict
+    if isinstance(symptoms, list):
+        symptom_dict = {}
+        # Map common symptom names to default severity
+        severity_map = {
+            "Hot flashes": "moderate",
+            "Hot flash": "moderate",
+            "Night sweats": "moderate",
+            "Night sweat": "moderate",
+            "Brain fog": "mild",
+            "Cramps": "moderate",
+            "Bloating": "mild",
+            "Headache": "mild",
+            "Headaches": "mild",
+            "Insomnia": "severe",
+            "Fatigue": "moderate",
+            "Fatigue ": "moderate",
+            "Back pain": "mild",
+            "Joint pain": "mild",
+        }
+        
+        for symptom_name in symptoms:
+            if symptom_name in severity_map:
+                # Convert to snake_case key
+                key = symptom_name.lower().replace(" ", "_")
+                symptom_dict[key] = severity_map[symptom_name]
+        
+        return symptom_dict
+    
+    # If it's already a dict, return as-is
+    if isinstance(symptoms, dict):
+        return symptoms
+    
+    return {}
+
+
+# ============================================================================
 # MAIN API FUNCTIONS
 # ============================================================================
 
@@ -90,6 +147,15 @@ def get_perimenopause_dashboard(user_id: int, period: str = "7d") -> Dict[str, A
             first_log = cursor.fetchone()
             if first_log and first_log.get("log_date"):
                 start_date = first_log.get("log_date")
+            
+            # Fetch all health_logs for this period (needed for GSM health calculation)
+            cursor.execute("""
+                SELECT log_date, mood, energy_level, symptoms, notes
+                FROM health_logs
+                WHERE user_id = %s AND log_date >= %s AND log_date <= %s
+                ORDER BY log_date ASC
+            """, (user_id, start_date, end_date))
+            health_logs = cursor.fetchall()
         
         # Ensure start_date is not None before calling isoformat()
         start_date_str = start_date.isoformat() if start_date else date.today().isoformat()
@@ -112,29 +178,11 @@ def get_perimenopause_dashboard(user_id: int, period: str = "7d") -> Dict[str, A
             # Tab 1: Vasomotor Tracker
             "vasomotor_tracker": insights.get("vasomotor_tracker"),
             
-            # Tab 1: GSM Health (Intimate & Urinary Health)
-            "gsm_health": {
-                "vaginal_dryness": {
-                    "level": "mild",
-                    "value": 3,
-                    "percentage": 30
-                },
-                "urinary_frequency": {
-                    "level": "moderate",
-                    "value": 5,
-                    "percentage": 50
-                },
-                "pelvic_discomfort": {
-                    "level": "mild",
-                    "value": 2,
-                    "percentage": 20
-                },
-                "libido_impact": {
-                    "level": "moderate",
-                    "value": 4,
-                    "percentage": 40
-                }
-            },
+            # Tab 1: GSM Health (Intimate & Urinary Health) - calculated from user data
+            "gsm_health": _calculate_gsm_health([
+                log for log in health_logs 
+                if start_date <= log.get("log_date") <= end_date
+            ]),
             
             # Tab 2: Symptom Matrix with Correlations
             "symptom_matrix": insights.get("symptom_matrix"),
@@ -193,9 +241,7 @@ def get_menopause_summary(user_id: int) -> Dict[str, Any]:
             hot_flash_count = 0
             total_severity = 0
             for log in health_logs:
-                symptoms = log.get("symptoms") or {}
-                if isinstance(symptoms, str):
-                    symptoms = json.loads(symptoms)
+                symptoms = _normalize_symptoms(log.get("symptoms"))
                 hot_flash_count += symptoms.get("hot_flash_count", 0)
                 if symptoms.get("hot_flash"):
                     severity_map = {"mild": 3, "moderate": 6, "severe": 9}
@@ -218,9 +264,7 @@ def get_menopause_summary(user_id: int) -> Dict[str, Any]:
             # Parse sleep hours
             sleep_hours = []
             for log in health_logs:
-                symptoms = log.get("symptoms") or {}
-                if isinstance(symptoms, str):
-                    symptoms = json.loads(symptoms)
+                symptoms = _normalize_symptoms(log.get("symptoms"))
                 if symptoms.get("sleep_hours"):
                     sleep_hours.append(symptoms.get("sleep_hours"))
             avg_sleep = sum(sleep_hours) / len(sleep_hours) if sleep_hours else 7
@@ -374,9 +418,7 @@ def get_clinical_export(
             for symptom in primary_symptoms:
                 severity_counts = defaultdict(int)
                 for log in health_logs:
-                    symptoms = log.get("symptoms") or {}
-                    if isinstance(symptoms, str):
-                        symptoms = json.loads(symptoms)
+                    symptoms = _normalize_symptoms(log.get("symptoms"))
                     if symptoms.get(symptom):
                         severity_counts[symptoms.get(symptom)] += 1
                 
@@ -388,9 +430,7 @@ def get_clinical_export(
             sleep_hours = []
             sleep_quality_scores = []
             for log in health_logs:
-                symptoms = log.get("symptoms") or {}
-                if isinstance(symptoms, str):
-                    symptoms = json.loads(symptoms)
+                symptoms = _normalize_symptoms(log.get("symptoms"))
                 if symptoms.get("sleep_hours"):
                     sleep_hours.append(symptoms.get("sleep_hours"))
                 if symptoms.get("sleep_quality"):
@@ -573,9 +613,7 @@ def _extract_top_symptoms(health_logs: list, limit: int = 5) -> List[str]:
     symptom_counts = defaultdict(int)
     
     for log in health_logs:
-        symptoms = log.get("symptoms") or {}
-        if isinstance(symptoms, str):
-            symptoms = json.loads(symptoms)
+        symptoms = _normalize_symptoms(log.get("symptoms"))
         
         # Count non-empty symptoms
         for symptom, value in symptoms.items():
@@ -664,9 +702,7 @@ def _build_vasomotor_tracker(
     night_sweat_severity_sum = 0
     
     for log in health_logs:
-        symptoms = log.get("symptoms") or {}
-        if isinstance(symptoms, str):
-            symptoms = json.loads(symptoms)
+        symptoms = _normalize_symptoms(log.get("symptoms"))
         
         # Parse hot flashes
         if symptoms.get("hot_flash"):
@@ -725,10 +761,21 @@ def _build_vasomotor_tracker(
     
     # Determine trend
     if len(health_logs) >= 2:
+        def get_hot_flash_count(log):
+            symptoms = log.get("symptoms") or {}
+            if isinstance(symptoms, str):
+                try:
+                    symptoms = json.loads(symptoms)
+                except (json.JSONDecodeError, TypeError):
+                    return 0
+            if isinstance(symptoms, dict):
+                return symptoms.get("hot_flash_count", 0)
+            return 0
+        
         early_events = sum(1 for log in health_logs[:len(health_logs)//2] 
-                          if log.get("symptoms", {}).get("hot_flash_count", 0) > 0)
+                          if get_hot_flash_count(log) > 0)
         late_events = sum(1 for log in health_logs[len(health_logs)//2:] 
-                         if log.get("symptoms", {}).get("hot_flash_count", 0) > 0)
+                         if get_hot_flash_count(log) > 0)
         
         if late_events < early_events:
             trend = "improving"
@@ -790,9 +837,7 @@ def _build_symptom_matrix(
             energy_level=log.get("energy_level")
         )
         
-        symptoms = log.get("symptoms") or {}
-        if isinstance(symptoms, str):
-            symptoms = json.loads(symptoms)
+        symptoms = _normalize_symptoms(log.get("symptoms"))
         
         # Parse all symptoms
         for symptom, value in symptoms.items():
@@ -847,9 +892,8 @@ def _build_symptom_matrix(
     # Calculate sleep
     sleep_hours = []
     for log in health_logs:
-        symptoms = log.get("symptoms") or {}
-        if isinstance(symptoms, str):
-            symptoms = json.loads(symptoms)
+        symptoms = _normalize_symptoms(log.get("symptoms"))
+        
         if symptoms.get("sleep_hours"):
             sleep_hours.append(symptoms.get("sleep_hours"))
     avg_sleep = sum(sleep_hours) / len(sleep_hours) if sleep_hours else 7
@@ -871,6 +915,63 @@ def _build_symptom_matrix(
     }
 
 
+def _calculate_gsm_health(health_logs: list) -> Dict[str, Dict]:
+    """
+    Calculate GSM (Genitourinary Syndrome of Menopause) health metrics from actual health logs.
+    
+    Extracts: vaginal_dryness, urinary_frequency, pelvic_discomfort, libido_impact
+    from symptoms JSON instead of using hardcoded values.
+    
+    Handles both formats:
+    - Dict format: {"vaginal_dryness": "moderate", ...}
+    - List format: ["Symptom 1", "Symptom 2", ...] (returns not_reported)
+    """
+    gsm_fields = {
+        "vaginal_dryness": [],
+        "urinary_frequency": [],
+        "pelvic_discomfort": [],
+        "libido_impact": []
+    }
+    
+    # Parse symptoms from all logs
+    for log in health_logs:
+        symptoms = _normalize_symptoms(log.get("symptoms"))
+        
+        for field in gsm_fields.keys():
+            if symptoms.get(field):
+                gsm_fields[field].append(symptoms.get(field))
+    
+    # Calculate aggregates for each GSM symptom
+    gsm_health = {}
+    severity_map = {"none": 0, "mild": 3, "moderate": 5, "severe": 8}
+    
+    for field, values in gsm_fields.items():
+        if not values:
+            # No data reported - return neutral
+            gsm_health[field] = {
+                "level": "not_reported",
+                "value": 0,
+                "percentage": 0
+            }
+        else:
+            # Find most common severity level
+            severity_counts = defaultdict(int)
+            for val in values:
+                severity_counts[val] += 1
+            
+            most_common = max(severity_counts, key=severity_counts.get)
+            value = severity_map.get(most_common, 0)
+            percentage = int((value / 10) * 100)  # Convert to percentage
+            
+            gsm_health[field] = {
+                "level": most_common,
+                "value": value,
+                "percentage": percentage
+            }
+    
+    return gsm_health
+
+
 def _calculate_symptom_correlations(health_logs: list) -> List[Dict]:
     """Calculate symptom correlations with percentages and descriptions."""
     from collections import defaultdict
@@ -884,9 +985,7 @@ def _calculate_symptom_correlations(health_logs: list) -> List[Dict]:
         if log.get("mood"):
             symptoms_present.append("mood")
         
-        symptoms = log.get("symptoms") or {}
-        if isinstance(symptoms, str):
-            symptoms = json.loads(symptoms)
+        symptoms = _normalize_symptoms(log.get("symptoms"))
         
         for symptom, value in symptoms.items():
             if value and value not in ["none", "None", 0]:
