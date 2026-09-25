@@ -3,10 +3,16 @@ Comprehensive API Response Validation Script
 Tests all major endpoints and validates response quality
 """
 
+import sys
+import os
 import requests
 import json
 from datetime import datetime
 from typing import Dict, List, Tuple
+
+# Fix UTF-8 encoding on Windows
+if sys.platform.startswith('win'):
+    os.environ['PYTHONIOENCODING'] = 'utf-8'
 
 BASE_URL = "http://localhost:8002/api/v1"
 
@@ -41,11 +47,21 @@ class APITester:
         else:
             self.failed_tests += 1
 
-    def validate_response(self, endpoint: str, user_id: int = 2) -> Tuple[bool, str, Dict]:
+    def validate_response(self, endpoint: str, user_id: int = 2, method: str = "GET", full_url: bool = False) -> Tuple[bool, str, Dict]:
         """Test an API endpoint and validate response structure."""
         try:
-            url = f"{BASE_URL}{endpoint}?user_id={user_id}"
-            response = requests.get(url, timeout=10)
+            if full_url:
+                url = endpoint  # Use endpoint as full URL
+            else:
+                url = f"{BASE_URL}{endpoint}"
+            
+            if method == "GET":
+                if not full_url:
+                    url = f"{url}?user_id={user_id}"
+                response = requests.get(url, timeout=30)
+            elif method == "POST":
+                payload = {"user_id": user_id, "days": 30, "include_correlations": True}
+                response = requests.post(url, json=payload, timeout=30)
             
             if response.status_code != 200:
                 return False, f"Status {response.status_code}", {}
@@ -57,7 +73,7 @@ class APITester:
 
     def test_athlete_api(self):
         """Test Athlete Performance API"""
-        self.print_header("🏃 ATHLETE PERFORMANCE API TESTS")
+        self.print_header("[ATHLETE] ATHLETE PERFORMANCE API TESTS")
         
         success, msg, data = self.validate_response("/athlete/readiness", user_id=2)
         self.print_test("/athlete/readiness", success, msg)
@@ -118,8 +134,8 @@ class APITester:
         """Test Beauty/Radiance API"""
         self.print_header("💄 BEAUTY/RADIANCE API TESTS")
         
-        success, msg, data = self.validate_response("/beauty/radiance", user_id=2)
-        self.print_test("/beauty/radiance", success, msg)
+        success, msg, data = self.validate_response("http://localhost:8002/api/beauty-overview", user_id=2, method="POST", full_url=True)
+        self.print_test("/api/beauty-overview (POST)", success, msg)
         
         if success and data:
             # Validate required fields
@@ -169,8 +185,8 @@ class APITester:
         """Test Cycle Awareness API"""
         self.print_header("🔄 CYCLE AWARENESS API TESTS")
         
-        success, msg, data = self.validate_response("/cycle/phase-insights", user_id=2)
-        self.print_test("/cycle/phase-insights", success, msg)
+        success, msg, data = self.validate_response("http://localhost:8002/api/cycle-awareness?user_id=2", user_id=2, method="GET", full_url=True)
+        self.print_test("/api/cycle-awareness", success, msg)
         
         if success and data:
             required_fields = ["current_phase", "cycle_day", "days_remaining", "phase_insights"]
