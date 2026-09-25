@@ -1,6 +1,6 @@
 """Athlete Performance API routes."""
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from ai.services.athlete_service import athlete_readiness
 
@@ -32,4 +32,9 @@ async def get_athlete_readiness(user_id: int = Query(..., description="User ID")
     - Cycle-phase specific training recommendations
     - Next update timestamp
     """
-    return athlete_readiness(user_id)
+    try:
+        return athlete_readiness(user_id)
+    except Exception as exc:
+        if "not found" in str(exc).lower():
+            raise HTTPException(status_code=404, detail=f"User {user_id} not found")
+        raise HTTPException(status_code=500, detail=f"Readiness calculation failed: {exc}")
