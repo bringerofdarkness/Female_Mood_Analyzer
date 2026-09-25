@@ -62,13 +62,8 @@
 **Region:** us-east-1  
 **Table:** `skin_scans` (stores all skin metrics)
 
-**Connection Configuration (from `.env`):**
-```
-MYSQL_HOST=mysql-database.cc98ouaycdke.us-east-1.rds.amazonaws.com
-MYSQL_PORT=3306
-MYSQL_USER=pulse
-MYSQL_PASSWORD=Pul$$e2026_mysql
-MYSQL_DATABASE=pulse_mysql
+
+
 ```
 
 ---
