@@ -6,7 +6,8 @@ from ai.services.pregnancy_service import (
     pregnancy_milestones,
     pregnancy_clinical_timeline,
     postpartum_recovery,
-    support_groups
+    support_groups,
+    miscarriage_support
 )
 
 router = APIRouter()
@@ -53,13 +54,12 @@ async def get_pregnancy_summary(user_id: int = Query(..., ge=1, description="Use
 
 @router.get("/pregnancy/milestones")
 async def get_pregnancy_milestones(
-    user_id: int = Query(..., ge=1, description="User ID"),
-    week: int = Query(None, ge=0, le=40, description="Specific pregnancy week (0-40, optional)")
+    user_id: int = Query(..., ge=1, description="User ID")
 ):
     """
-    **Pregnancy Milestones by Week**
+    **Pregnancy Milestones by Current Week**
     
-    Get detailed pregnancy milestones for a specific week including:
+    Get detailed pregnancy milestones for the user's current pregnancy week including:
     - Baby development
     - Body changes and symptoms
     - Nutrition recommendations
@@ -68,7 +68,9 @@ async def get_pregnancy_milestones(
     
     **Parameters:**
     - `user_id` (int, required): User identifier
-    - `week` (int, optional): Specific week (0-40). If omitted, uses current week.
+    
+    **Week Source:**
+    Automatically calculates from user's menstrual cycle data (period_start_date).
     
     **Response includes:**
     - Baby size, weight, and development features
@@ -79,33 +81,35 @@ async def get_pregnancy_milestones(
     
     **Example:**
     ```
-    GET /api/v1/pregnancy/milestones?user_id=2&week=24
+    GET /api/v1/pregnancy/milestones?user_id=6
     ```
     
     **Response (200 OK):**
     ```json
     {
-      "week": 24,
-      "trimester": "Second",
-      "baby_development": {
-        "size": "Corn on the cob",
-        "weight": "1.3 lbs",
-        "features": ["Lungs producing surfactant", ...]
-      },
-      "your_body": {...},
-      "nutrition_focus": {...},
-      "safe_exercises": {...},
-      "clinical_monitoring": {...}
+      "week": 36,
+      "trimester": "Third",
+      "baby_development": "Baby weighs about 5.5 lbs and is ideally in head-down position...",
+      "your_body": "Your belly may drop (lightening)...",
+      "nutrition_focus": "Easy-to-digest proteins and iron-rich foods...",
+      "safe_exercises": "Gentle walking, pelvic floor exercises...",
+      "clinical_monitoring": [
+        {
+          "name": "GBS Swab & Birth Plan",
+          "week": "W36",
+          "date": "Jan 31"
+        }
+      ],
+      "clinical_warning_signs": "Contact hospital if contractions are regular..."
     }
     ```
     """
-    return pregnancy_milestones(user_id, week)
+    return pregnancy_milestones(user_id)
 
 
 @router.get("/pregnancy/clinical-timeline")
 async def get_pregnancy_clinical_timeline(
-    user_id: int = Query(..., ge=1, description="User ID"),
-    week: int = Query(None, ge=0, le=40, description="Current pregnancy week (0-40, optional)")
+    user_id: int = Query(..., ge=1, description="User ID")
 ):
     """
     **Clinical Tests Timeline - Figma UI View**
@@ -115,7 +119,9 @@ async def get_pregnancy_clinical_timeline(
     
     **Parameters:**
     - `user_id` (int, required): User identifier
-    - `week` (int, optional): Current pregnancy week. If omitted, uses current week.
+    
+    **Week Source:**
+    Automatically calculates from user's menstrual cycle data (period_start_date).
     
     **Response includes:**
     - Current week and trimester
@@ -124,7 +130,7 @@ async def get_pregnancy_clinical_timeline(
     
     **Example:**
     ```
-    GET /api/v1/pregnancy/clinical-timeline?user_id=2&week=24
+    GET /api/v1/pregnancy/clinical-timeline?user_id=6
     ```
     
     **Response (200 OK):**
@@ -163,7 +169,82 @@ async def get_pregnancy_clinical_timeline(
     }
     ```
     """
-    return pregnancy_clinical_timeline(user_id, week)
+    return pregnancy_clinical_timeline(user_id)
+
+
+@router.get("/pregnancy/miscarriage-support")
+async def get_miscarriage_support(
+    user_id: int = Query(..., ge=1, description="User ID")
+):
+    """
+    **Miscarriage Support & Mental Health Resources**
+    
+    Detects pregnancy loss and provides comprehensive mental health support, 
+    counseling resources, and community support groups for users experiencing miscarriage.
+    
+    **Parameters:**
+    - `user_id` (int, required): User identifier
+    
+    **Detection:**
+    Automatically checks health logs for miscarriage indicators:
+    - Keywords: "miscarriage", "pregnancy loss", "heavy bleeding", "severe cramping", etc.
+    
+    **Response includes (if miscarriage detected):**
+    - Miscarriage detection date
+    - Immediate crisis support hotlines
+    - Mental health resources and counseling options
+    - Support communities for pregnancy loss
+    - Physical recovery guidelines
+    - Self-care recommendations
+    - Next steps for healing
+    
+    **Example:**
+    ```
+    GET /api/v1/pregnancy/miscarriage-support?user_id=6
+    ```
+    
+    **Response (200 OK - If Miscarriage Detected):**
+    ```json
+    {
+      "has_miscarriage": true,
+      "miscarriage_detected_date": "2026-09-20",
+      "status": "support_needed",
+      "message": "We're deeply sorry for your loss...",
+      "support_communities": [
+        {
+          "name": "Miscarriage Support Group",
+          "description": "Community support for pregnancy loss",
+          "member_count": 245,
+          "type": "pregnancy_loss"
+        }
+      ],
+      "mental_health_resources": {
+        "immediate_support": {
+          "crisis_hotline": "1-800-273-8255 (24/7 Suicide & Crisis Lifeline)",
+          "pregnancy_loss_hotline": "1-888-495-2288 (MISSCARRIAGE Support)"
+        },
+        "professional_help": {
+          "grief_counseling": "Specialized counselors for pregnancy loss grief",
+          "therapy_options": ["Individual counseling", "Couples counseling", "Support groups"]
+        }
+      },
+      "next_steps": [
+        "Allow time for emotional and physical healing",
+        "Connect with support communities...",
+        "Consider professional grief counseling..."
+      ]
+    }
+    ```
+    
+    **Response (200 OK - If No Miscarriage):**
+    ```json
+    {
+      "has_miscarriage": false,
+      "message": "No miscarriage detected..."
+    }
+    ```
+    """
+    return miscarriage_support(user_id)
 
 
 @router.get("/postpartum/recovery")

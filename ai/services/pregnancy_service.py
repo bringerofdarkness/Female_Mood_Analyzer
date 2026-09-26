@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta, date
 from typing import Any, Dict, Optional
 from pymysql.cursors import DictCursor
+from fastapi import HTTPException
 
 from ai.models.pregnancy_models import (
     PregnancySummary, PregnancyAlert, PregnancyMilestones, ClinicalTest,
@@ -128,13 +129,14 @@ def pregnancy_summary(user_id: int) -> Dict[str, Any]:
         with get_connection() as conn:
             cursor = conn.cursor()
             
-            # Check if user is in pregnancy life stage
+            # Check if user exists
             profile = get_user_profile(user_id)
-            if not profile or profile.get("life_stage_id") != 3:  # 3 = Pregnancy
-                return {
-                    "is_pregnant": False,
-                    "message": "User is not currently in pregnancy life stage"
-                }
+            if not profile:
+                raise HTTPException(status_code=404, detail=f"User {user_id} not found")
+            
+            # Check if user is in pregnancy life stage
+            if profile.get("life_stage_id") != 3:  # 3 = Pregnancy
+                raise HTTPException(status_code=404, detail=f"User {user_id} is not currently pregnant")
             
             # Get last positive pregnancy test
             cursor.execute("""
@@ -198,6 +200,8 @@ def pregnancy_summary(user_id: int) -> Dict[str, Any]:
                 alerts=alerts
             ).model_dump(exclude_none=False)
     
+    except HTTPException:
+        raise  # Re-raise HTTPException to propagate to FastAPI
     except Exception as e:
         print(f"[ERROR] pregnancy_summary failed for user {user_id}: {e}")
         return {"status": "error", "message": str(e), "user_id": user_id}
@@ -206,7 +210,15 @@ def pregnancy_summary(user_id: int) -> Dict[str, Any]:
 def pregnancy_milestones(user_id: int, week: Optional[int] = None) -> Dict[str, Any]:
     """Get pregnancy milestones for specific week - UI-aligned narrative format."""
     try:
-        from ai.utils.db import get_connection
+        from ai.utils.db import get_connection, get_user_profile
+        
+        # Check if user exists
+        profile = get_user_profile(user_id)
+        if not profile:
+            raise HTTPException(status_code=404, detail=f"User {user_id} not found")
+        
+        if profile.get("life_stage_id") != 3:  # 3 = Pregnancy
+            raise HTTPException(status_code=404, detail=f"User {user_id} is not currently pregnant")
         
         # Get current week if not specified
         if week is None:
@@ -249,6 +261,8 @@ def pregnancy_milestones(user_id: int, week: Optional[int] = None) -> Dict[str, 
             clinical_warning_signs=data.get("warning_signs", "")
         ).model_dump(exclude_none=False)
     
+    except HTTPException:
+        raise  # Re-raise HTTPException to propagate to FastAPI
     except Exception as e:
         print(f"[ERROR] pregnancy_milestones failed for user {user_id}, week {week}: {e}")
         return {"status": "error", "message": str(e), "user_id": user_id}
@@ -257,7 +271,15 @@ def pregnancy_milestones(user_id: int, week: Optional[int] = None) -> Dict[str, 
 def pregnancy_clinical_timeline(user_id: int, week: Optional[int] = None) -> Dict[str, Any]:
     """Get all clinical tests across entire pregnancy with dates - UI timeline view."""
     try:
-        from ai.utils.db import get_connection
+        from ai.utils.db import get_connection, get_user_profile
+        
+        # Check if user exists
+        profile = get_user_profile(user_id)
+        if not profile:
+            raise HTTPException(status_code=404, detail=f"User {user_id} not found")
+        
+        if profile.get("life_stage_id") != 3:  # 3 = Pregnancy
+            raise HTTPException(status_code=404, detail=f"User {user_id} is not currently pregnant")
         
         # Get current week if not specified
         if week is None:
@@ -299,6 +321,8 @@ def pregnancy_clinical_timeline(user_id: int, week: Optional[int] = None) -> Dic
             "clinical_warning_signs": warning_signs
         }
     
+    except HTTPException:
+        raise  # Re-raise HTTPException to propagate to FastAPI
     except Exception as e:
         print(f"[ERROR] pregnancy_clinical_timeline failed for user {user_id}, week {week}: {e}")
         return {"status": "error", "message": str(e), "user_id": user_id}
@@ -312,13 +336,14 @@ def postpartum_recovery(user_id: int) -> Dict[str, Any]:
         with get_connection() as conn:
             cursor = conn.cursor()
             
-            # Check if user is in postpartum life stage
+            # Check if user exists
             profile = get_user_profile(user_id)
-            if not profile or profile.get("life_stage_id") != 4:  # 4 = Postpartum
-                return {
-                    "is_postpartum": False,
-                    "message": "User is not currently in postpartum life stage"
-                }
+            if not profile:
+                raise HTTPException(status_code=404, detail=f"User {user_id} not found")
+            
+            # Check if user is in postpartum life stage
+            if profile.get("life_stage_id") != 4:  # 4 = Postpartum
+                raise HTTPException(status_code=404, detail=f"User {user_id} is not postpartum")
             
             # Get completed pregnancy cycle (delivery date)
             cursor.execute("""
@@ -331,7 +356,18 @@ def postpartum_recovery(user_id: int) -> Dict[str, Any]:
             cycle = cursor.fetchone()
             
             if not cycle or not cycle.get("period_end_date"):
-                return {"is_postpartum": False, "message": "No completed pregnancy found"}
+                return {
+                    "days_postpartum": 0,
+                    "postpartum_week": 0,
+                    "recovery_status": "no_data",
+                    "delivery_method": "unknown",
+                    "physical_health": {"physical_recovery_percent": 0, "bleeding_level": "unknown", "pelvic_floor_status": "unknown", "hormonal_balance_percent": 0, "energy_level_percent": 0, "sleep_quality_percent": 0},
+                    "mental_health": {"mood_stability": 0, "anxiety_level": 0, "depression_screening": "unknown", "mood_trend": "unknown", "supportive_resources": []},
+                    "activity_level": "Consult doctor",
+                    "alerts": [],
+                    "next_follow_up": None,
+                    "message": "No completed pregnancy found"
+                }
             
             delivery_date = cycle.get("period_end_date")
             current_date = date.today()
@@ -353,16 +389,33 @@ def postpartum_recovery(user_id: int) -> Dict[str, Any]:
             mental_health = _calculate_mental_health(health_logs)
             alerts = _generate_postpartum_alerts(postpartum_week, recovery_metrics, mental_health)
             
-            return PostpartumRecovery(
-                postpartum_week=postpartum_week,
-                delivery_method="vaginal",  # Would need separate table to track
-                recovery_metrics=recovery_metrics,
-                mental_health=mental_health,
-                activity_level=POSTPARTUM_ACTIVITIES.get(postpartum_week, "Consult doctor"),
-                postpartum_alerts=alerts,
-                next_follow_up=(delivery_date + timedelta(days=42)).isoformat()
-            ).model_dump(exclude_none=False)
+            # Determine recovery status based on postpartum week
+            if postpartum_week <= 2:
+                recovery_status = "early"
+            elif postpartum_week <= 6:
+                recovery_status = "mid"
+            elif postpartum_week <= 10:
+                recovery_status = "advanced"
+            else:
+                recovery_status = "complete"
+            
+            # Calculate days postpartum
+            days_postpartum = (current_date - delivery_date).days
+            
+            return {
+                "days_postpartum": days_postpartum,
+                "postpartum_week": postpartum_week,
+                "recovery_status": recovery_status,
+                "delivery_method": "vaginal",  # Would need separate table to track
+                "physical_health": recovery_metrics,
+                "mental_health": mental_health,
+                "activity_level": POSTPARTUM_ACTIVITIES.get(postpartum_week, "Consult doctor"),
+                "alerts": alerts,
+                "next_follow_up": (delivery_date + timedelta(days=42)).isoformat()
+            }
     
+    except HTTPException:
+        raise  # Re-raise HTTPException to propagate to FastAPI
     except Exception as e:
         print(f"[ERROR] postpartum_recovery failed for user {user_id}: {e}")
         return {"status": "error", "message": str(e), "user_id": user_id}
@@ -428,6 +481,160 @@ def support_groups(life_stage: str, limit: int = 10) -> Dict[str, Any]:
     except Exception as e:
         print(f"[ERROR] support_groups failed for {life_stage}: {e}")
         return {"groups": [], "total_groups": 0, "user_joined_count": 0, "error": str(e)}
+
+
+def miscarriage_support(user_id: int) -> Dict[str, Any]:
+    """
+    Get miscarriage support resources and mental health information.
+    Detects if user has experienced pregnancy loss and provides support.
+    """
+    try:
+        from ai.utils.db import get_connection, get_user_profile
+        
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Check if user exists
+            profile = get_user_profile(user_id)
+            if not profile:
+                raise HTTPException(status_code=404, detail=f"User {user_id} not found")
+            
+            # Detect miscarriage from health logs symptoms
+            cursor.execute("""
+                SELECT hl.symptoms, hl.notes, hl.log_date, mc.period_start_date
+                FROM health_logs hl
+                LEFT JOIN menstrual_cycles mc ON hl.user_id = mc.user_id
+                WHERE hl.user_id = %s
+                ORDER BY hl.log_date DESC
+                LIMIT 20
+            """, (user_id,))
+            
+            health_logs = cursor.fetchall()
+            
+            # Check for miscarriage indicators in symptoms/notes
+            miscarriage_keywords = ['miscarriage', 'pregnancy loss', 'lost pregnancy', 'heavy bleeding', 'severe cramping', 'no heartbeat']
+            has_miscarriage = False
+            miscarriage_date = None
+            
+            for log in health_logs:
+                symptoms = str(log.get('symptoms', '')).lower() if log.get('symptoms') else ''
+                notes = str(log.get('notes', '')).lower() if log.get('notes') else ''
+                
+                for keyword in miscarriage_keywords:
+                    if keyword in symptoms or keyword in notes:
+                        has_miscarriage = True
+                        miscarriage_date = log.get('log_date')
+                        break
+                
+                if has_miscarriage:
+                    break
+            
+            # If miscarriage detected, provide mental support
+            if has_miscarriage:
+                # Get support groups for pregnancy loss
+                cursor.execute("""
+                    SELECT DISTINCT 
+                        cp.id,
+                        cp.title as name,
+                        cp.content as description,
+                        COUNT(DISTINCT cp.user_id) as member_count,
+                        cp.created_at
+                    FROM community_posts cp
+                    WHERE (cp.tags LIKE '%miscarriage%' OR cp.tags LIKE '%pregnancy loss%' OR cp.tags LIKE '%grief%')
+                    AND cp.is_approved = 1
+                    GROUP BY cp.id
+                    ORDER BY member_count DESC
+                    LIMIT 5
+                """)
+                
+                support_community = cursor.fetchall()
+                
+                support_groups_list = []
+                for row in support_community:
+                    support_groups_list.append({
+                        "id": row.get("id"),
+                        "name": row.get("name", "Support Community"),
+                        "description": row.get("description", "Community support for pregnancy loss"),
+                        "member_count": row.get("member_count", 0),
+                        "type": "pregnancy_loss"
+                    })
+                
+                # Mental health resources and professional help
+                mental_health_resources = {
+                    "immediate_support": {
+                        "crisis_hotline": "1-800-273-8255 (24/7 Suicide & Crisis Lifeline)",
+                        "pregnancy_loss_hotline": "1-888-495-2288 (MISSCARRIAGE Support)",
+                        "whatsapp_support": "Available for chat support"
+                    },
+                    "professional_help": {
+                        "grief_counseling": "Specialized counselors for pregnancy loss grief",
+                        "therapy_options": ["Individual counseling", "Couples counseling", "Support groups"],
+                        "recommended_timeline": "Contact therapist within 1-2 weeks"
+                    },
+                    "self_care_tips": [
+                        "Allow yourself to grieve without judgment",
+                        "Talk to trusted family and friends about your feelings",
+                        "Join support groups with others who have experienced pregnancy loss",
+                        "Practice self-compassion and patience with recovery",
+                        "Avoid blame or guilt - miscarriage is not your fault",
+                        "Consider journaling or creative expression",
+                        "Follow your doctor's physical recovery guidelines"
+                    ],
+                    "physical_recovery": {
+                        "healing_timeline": "4-6 weeks for physical recovery",
+                        "when_to_contact_doctor": [
+                            "Heavy bleeding (soaking more than 1 pad per hour)",
+                            "Severe or worsening abdominal pain",
+                            "Fever above 100.4°F",
+                            "Foul-smelling discharge",
+                            "Signs of infection"
+                        ]
+                    }
+                }
+                
+                # Generate personalized supportive text using Claude LLM
+                supportive_message = _generate_miscarriage_support_text(user_id, profile, miscarriage_date)
+                
+                return {
+                    "has_miscarriage": True,
+                    "miscarriage_detected_date": miscarriage_date.isoformat() if miscarriage_date else None,
+                    "status": "support_needed",
+                    "supportive_message": supportive_message,
+                    "support_communities": support_groups_list,
+                    "mental_health_resources": mental_health_resources,
+                    "next_steps": [
+                        "Allow time for emotional and physical healing",
+                        "Connect with support communities of others who understand",
+                        "Consider professional grief counseling",
+                        "Follow up with your doctor at recommended timeline",
+                        "When ready, discuss future pregnancy options with your healthcare provider"
+                    ]
+                }
+            else:
+                # Return complete structure even when no miscarriage (for consistency)
+                return {
+                    "has_miscarriage": False,
+                    "supportive_message": "You are not showing signs of pregnancy loss. Continue your regular prenatal care and reach out to your healthcare provider if you have any concerns.",
+                    "support_communities": [],
+                    "mental_health_resources": {
+                        "general_support": "If you experience emotional challenges, various support resources are available",
+                        "professional_help": ["Prenatal mental health screening", "Counseling services", "Support groups"],
+                        "recommended_action": "Regular prenatal mental health check-ins are recommended"
+                    },
+                    "next_steps": [
+                        "Continue regular prenatal appointments",
+                        "Monitor for any changes in pregnancy symptoms",
+                        "Reach out if you develop concerning symptoms",
+                        "Maintain healthy lifestyle habits",
+                        "Report any unusual bleeding or pain to your provider"
+                    ]
+                }
+    
+    except HTTPException:
+        raise  # Re-raise HTTPException to propagate to FastAPI
+    except Exception as e:
+        print(f"[ERROR] miscarriage_support failed for user {user_id}: {e}")
+        return {"status": "error", "message": str(e), "user_id": user_id}
 
 
 # ============================================================================
@@ -570,3 +777,65 @@ def _calculate_mental_health(logs: list) -> MentalHealth:
         supportive_resources=["Postpartum Support Group", "Mental Health Helpline", "Partner Support"]
     )
 
+
+def _generate_miscarriage_support_text(user_id: int, profile: dict, miscarriage_date: date) -> str:
+    """
+    Generate personalized, compassionate support message using Claude LLM.
+    This message appears in the Support tab of the UI.
+    """
+    try:
+        from ai.utils.llm_call import llm_call
+        
+        user_name = profile.get("full_name", "there").split()[0] if profile.get("full_name") else "there"
+        days_since = (date.today() - miscarriage_date).days if isinstance(miscarriage_date, date) else 0
+        
+        prompt = f"""
+You are a compassionate mental health support specialist providing emotional support to a woman experiencing pregnancy loss.
+
+User Context:
+- Name: {user_name}
+- Loss Date: {miscarriage_date}
+- Days Since Loss: {days_since} days
+- User ID: {user_id}
+
+Generate a warm, personalized, deeply empathetic support message that:
+1. Acknowledges her loss with genuine compassion
+2. Validates her emotions and grief
+3. Reminds her that miscarriage is NOT her fault
+4. Provides gentle encouragement for her healing journey
+5. Offers hope while respecting her current pain
+
+Requirements:
+- Keep the tone warm, human, and genuine (NOT clinical or robotic)
+- 200-400 words of heartfelt support
+- Personalize with her name naturally
+- Include practical emotional coping suggestions
+- Emphasize that seeking help is a sign of strength
+- End with an uplifting message about moving forward at her own pace
+
+Format: Plain text paragraph, no markdown or special formatting.
+"""
+        
+        supportive_message = llm_call(
+            prompt=prompt,
+            max_tokens=500,
+            system_prompt="You are a compassionate grief counselor providing emotional support to women experiencing pregnancy loss. Your messages are deeply empathetic, non-judgmental, and healing-focused."
+        )
+        
+        return supportive_message
+    
+    except Exception as e:
+        print(f"[ERROR] Failed to generate Claude support message for user {user_id}: {e}")
+        # Fallback message if Claude fails
+        user_name = profile.get("full_name", "there").split()[0] if profile.get("full_name") else "there"
+        return f"""Dear {user_name},
+
+We are deeply sorry for your loss. Miscarriage is a profound loss that deserves to be grieved. What you're feeling right now - whether it's sadness, anger, guilt, or emptiness - is completely valid and understandable.
+
+Please know that miscarriage is NOT your fault. There is nothing you did or didn't do that caused this. Your body did not fail you - sometimes pregnancies end for reasons beyond our control, and that's not a reflection of your strength or capability as a person or mother.
+
+You deserve support during this time. Whether it's through talking with trusted loved ones, connecting with others who understand, or seeking professional counseling, reaching out is an act of strength, not weakness.
+
+Your grief is valid. Your loss matters. And your healing will happen at your own pace. We're here to support you every step of the way.
+
+With compassion and care."""

@@ -10,7 +10,6 @@ from typing import Any, Optional, Dict, List, Tuple
 
 from ai.config import settings
 from ai.models.cycle_models import (
-    CycleRequest,
     CycleOverviewResponse,
     CycleMetrics,
     FertileWindow,
@@ -61,12 +60,14 @@ Return ONLY valid JSON:
 CRITICAL: Return ONLY JSON, no markdown or additional text."""
 
 
-def get_cycle_overview(request: CycleRequest) -> CycleOverviewResponse:
+def get_cycle_overview(user_id: int, mode: str = "standard", include_bbt: bool = False) -> CycleOverviewResponse:
     """
     Generate comprehensive cycle overview for a user.
     
     Args:
-        request: CycleRequest with user_id, mode, and include_bbt flag
+        user_id: User ID (must be positive integer)
+        mode: Tracking mode - 'standard', 'tracking', or 'premium'
+        include_bbt: Include BBT (Basal Body Temperature) analysis
         
     Returns:
         CycleOverviewResponse with current metrics, fertile window, and AI insights
@@ -75,8 +76,12 @@ def get_cycle_overview(request: CycleRequest) -> CycleOverviewResponse:
         ValueError: If user not found or data invalid
     """
     try:
-        user_id = request.user_id
-        logger.info(f"Generating cycle overview for user {user_id}, mode={request.mode}")
+        logger.info(f"Generating cycle overview for user {user_id}, mode={mode}")
+        
+        # Validate user exists
+        if not _user_exists(user_id):
+            logger.warning(f"User {user_id} not found")
+            raise ValueError(f"User {user_id} not found")
         
         # Fetch cycle data
         current_cycle = _fetch_current_cycle(user_id)
@@ -92,7 +97,7 @@ def get_cycle_overview(request: CycleRequest) -> CycleOverviewResponse:
         
         # Get BBT analysis if requested
         bbt_analysis = None
-        if request.include_bbt or request.mode in ["tracking", "premium"]:
+        if include_bbt or mode in ["tracking", "premium"]:
             bbt_analysis = _fetch_bbt_analysis(user_id, current_cycle["id"])
             logger.debug(f"BBT analysis for user {user_id}: {bbt_analysis is not None}")
         
@@ -105,11 +110,11 @@ def get_cycle_overview(request: CycleRequest) -> CycleOverviewResponse:
             fertile_window=fertile_window,
             bbt_analysis=bbt_analysis,
             history=cycle_history,
-            mode=request.mode
+            mode=mode
         )
         
         # Generate AI insights
-        ai_insights = _generate_cycle_insights(context, request.mode)
+        ai_insights = _generate_cycle_insights(context, mode)
         
         logger.info(f"Successfully generated cycle overview for user {user_id}")
         
@@ -122,8 +127,20 @@ def get_cycle_overview(request: CycleRequest) -> CycleOverviewResponse:
         )
     
     except Exception as exc:
-        logger.error(f"Error generating cycle overview for user {request.user_id}: {exc}")
+        logger.error(f"Error generating cycle overview for user {user_id}: {exc}")
         raise
+
+
+def _user_exists(user_id: int) -> bool:
+    """Check if user exists in the profiles table."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT 1 FROM profiles WHERE user_id = %s LIMIT 1", (user_id,))
+            return cur.fetchone() is not None
+    except Exception as exc:
+        logger.error(f"Error checking if user exists: {exc}")
+        return False
 
 
 def _fetch_current_cycle(user_id: int) -> Optional[Dict[str, Any]]:
@@ -226,12 +243,28 @@ def _fetch_cycle_history(user_id: int, months: int = 6) -> CycleHistory:
 
 def _build_cycle_metrics(cycle_data: Dict[str, Any]) -> CycleMetrics:
     """Build CycleMetrics from database row."""
+    
+    # Calculate period_end_date if not provided
+    period_end_date = cycle_data.get("period_end_date")
+    if not period_end_date and cycle_data.get("period_start_date"):
+        # If period_end_date is null, calculate it as period_start_date + period_length (or default 5 days)
+        from datetime import datetime, timedelta
+        try:
+            start = cycle_data.get("period_start_date")
+            if isinstance(start, str):
+                start = datetime.fromisoformat(start).date()
+            period_length = cycle_data.get("period_length") or 5  # Default 5-day period
+            period_end_date = start + timedelta(days=period_length - 1)  # -1 because it's inclusive
+        except Exception as e:
+            logger.warning(f"Could not calculate period_end_date: {e}")
+            period_end_date = None
+    
     return CycleMetrics(
         current_cycle_day=cycle_data.get("current_cycle_day") or 0,
         cycle_length=cycle_data.get("cycle_length") or DEFAULT_CYCLE_LENGTH,
         current_phase=cycle_data.get("current_phase") or "unknown",
         period_start_date=str(cycle_data.get("period_start_date")) if cycle_data.get("period_start_date") else None,
-        period_end_date=str(cycle_data.get("period_end_date")) if cycle_data.get("period_end_date") else None,
+        period_end_date=str(period_end_date) if period_end_date else None,
         predicted_ovulation_day=cycle_data.get("predicted_ovulation_day"),
         confirmed_ovulation_day=cycle_data.get("confirmed_ovulation_day"),
         is_confirmed=bool(cycle_data.get("is_confirmed"))
